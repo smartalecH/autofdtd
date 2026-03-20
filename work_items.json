@@ -1,0 +1,260 @@
+{
+  "version": 1,
+  "mission": "Turn the FDTD design corpus into a codegen-complete, benchmark-driven, implementation-ready package bootstrap.",
+  "items": [
+    {
+      "id": "solver_ir_schema",
+      "title": "Freeze the backend-neutral solver IR schema",
+      "track": "schema",
+      "priority": 1,
+      "depends_on": [],
+      "outputs": [
+        "A machine-readable solver IR schema with stable field names, enums, defaults, validation rules, and feature capability descriptors",
+        "Examples for a minimal vacuum simulation, a dispersive/PML simulation, and an adjoint-enabled simulation"
+      ],
+      "source_docs": [
+        "meep-gpu-core-spec.md",
+        "mathematical-kernel-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "An implementation generator can construct field buffers, stage graphs, and kernel specialization keys without inventing fields",
+        "The schema is independent of backend implementation language"
+      ]
+    },
+    {
+      "id": "geometry_ir_schema",
+      "title": "Freeze the geometry and materialization IR schema",
+      "track": "schema",
+      "priority": 2,
+      "depends_on": [],
+      "outputs": [
+        "A machine-readable geometry schema for primitives, transforms, material assignments, boolean composition, and parameter bindings",
+        "A machine-readable rasterization/materialization schema for voxel, face, and edge coefficients"
+      ],
+      "source_docs": [
+        "geometry-gpu-core-spec.md",
+        "geometry-and-domain-initialization.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "Forward initialization and adjoint geometry differentiation share the same discretization contract",
+        "Chunk-local broad-phase inputs and candidate-list outputs are explicitly represented"
+      ]
+    },
+    {
+      "id": "operator_schema",
+      "title": "Freeze the source, monitor, DFT, near-to-far, and adjoint operator schema",
+      "track": "schema",
+      "priority": 3,
+      "depends_on": [
+        "solver_ir_schema"
+      ],
+      "outputs": [
+        "A machine-readable operator schema for forward sources, monitors, mode operators, near-to-far operators, and adjoint source maps",
+        "Reference examples for time-domain, frequency-domain, and hybrid adjoint cases"
+      ],
+      "source_docs": [
+        "mathematical-kernel-spec.md",
+        "vector-mode-solver-spec.md",
+        "adjoint-and-discrepancy-notes.md"
+      ],
+      "success_criteria": [
+        "Monitor-to-source transformations do not require hidden implementation assumptions",
+        "Interpolation and restriction directions are explicit"
+      ]
+    },
+    {
+      "id": "api_compatibility_manifest",
+      "title": "Freeze Meep and Tidy3D compatibility manifests",
+      "track": "frontend",
+      "priority": 4,
+      "depends_on": [
+        "solver_ir_schema",
+        "geometry_ir_schema",
+        "operator_schema"
+      ],
+      "outputs": [
+        "An exact Meep API compatibility target manifest",
+        "An exact Tidy3D API compatibility target manifest",
+        "A list of intentionally out-of-scope non-core workflows"
+      ],
+      "source_docs": [
+        "meep-gpu-core-spec.md",
+        "tidy3d-compatibility-and-benchmarks.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "A generator can produce adapters without guessing signature or object-shape details",
+        "Parity targets and exclusions are explicit"
+      ]
+    },
+    {
+      "id": "distributed_protocol",
+      "title": "Freeze the multi-GPU chunking, halo, and reduction protocol",
+      "track": "distributed",
+      "priority": 5,
+      "depends_on": [
+        "solver_ir_schema",
+        "operator_schema"
+      ],
+      "outputs": [
+        "A protocol spec for chunk ownership, halo extents, pack order, reduction semantics, overlap schedule, and monitor aggregation",
+        "Reference communication traces for one-dimensional and three-dimensional decompositions"
+      ],
+      "source_docs": [
+        "meep-gpu-core-spec.md",
+        "geometry-gpu-core-spec.md",
+        "performance-benchmarking-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "Two independent implementations pack and exchange identical buffers",
+        "All field staggering conventions are encoded, not implied"
+      ]
+    },
+    {
+      "id": "material_plugin_contracts",
+      "title": "Freeze rich material plugin contracts",
+      "track": "physics",
+      "priority": 6,
+      "depends_on": [
+        "solver_ir_schema",
+        "geometry_ir_schema"
+      ],
+      "outputs": [
+        "Discrete constitutive-update contracts for Lorentz, Drude, gyrotropic, Kerr, and other target material families",
+        "State-layout and kernel-variant descriptors for each material family"
+      ],
+      "source_docs": [
+        "meep-gpu-core-spec.md",
+        "mathematical-kernel-spec.md",
+        "adjoint-and-discrepancy-notes.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "A generator can emit material state updates without inventing constitutive equations",
+        "Variant explosion is controlled through capability descriptors rather than manual kernel families"
+      ]
+    },
+    {
+      "id": "benchmark_manifest",
+      "title": "Freeze correctness, performance, and workload benchmark manifests",
+      "track": "benchmarking",
+      "priority": 7,
+      "depends_on": [
+        "api_compatibility_manifest",
+        "distributed_protocol"
+      ],
+      "outputs": [
+        "A machine-readable benchmark manifest with kernel, solver, device, and workflow tiers",
+        "Golden outputs and tolerances for accuracy checks",
+        "A workload suite drawn from metalens, Tidy3D notebooks, silicon-photonics devices, and distributed stress cases"
+      ],
+      "source_docs": [
+        "performance-benchmarking-spec.md",
+        "tidy3d-compatibility-and-benchmarks.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "A benchmark harness can run without per-case human interpretation",
+        "Performance regressions and correctness regressions are separable"
+      ]
+    },
+    {
+      "id": "accuracy_policy",
+      "title": "Freeze the accuracy policy and feature-tier tolerances",
+      "track": "benchmarking",
+      "priority": 8,
+      "depends_on": [
+        "benchmark_manifest",
+        "material_plugin_contracts"
+      ],
+      "outputs": [
+        "A tiered accuracy policy for vacuum, dielectric, dispersive, adjoint, mode-solver, and distributed features",
+        "A document explaining when numerical differences are acceptable and when they are failures"
+      ],
+      "source_docs": [
+        "mathematical-kernel-spec.md",
+        "performance-benchmarking-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "Accuracy gates are exact enough for automated CI and benchmark triage",
+        "Tolerance policy is attached to features, not buried in prose"
+      ]
+    },
+    {
+      "id": "mode_solver_completion",
+      "title": "Complete the discrete mode-solver implementation contract",
+      "track": "physics",
+      "priority": 9,
+      "depends_on": [
+        "operator_schema",
+        "material_plugin_contracts"
+      ],
+      "outputs": [
+        "A discrete operator contract for the vector mode solver across supported boundary types",
+        "Normalization, orthogonality, batching, and adjoint-through-eigensolve contracts"
+      ],
+      "source_docs": [
+        "vector-mode-solver-spec.md",
+        "mathematical-kernel-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "Mode source and monitor generation can be implemented against a fixed contract",
+        "PML and lossy-mode policy is explicit"
+      ]
+    },
+    {
+      "id": "implementation_scaffold",
+      "title": "Create the package scaffold for generated backends, tests, and benchmark harnesses",
+      "track": "implementation",
+      "priority": 10,
+      "depends_on": [
+        "solver_ir_schema",
+        "geometry_ir_schema",
+        "operator_schema",
+        "benchmark_manifest"
+      ],
+      "outputs": [
+        "A concrete package layout for generated kernels, handwritten runtime code, frontend adapters, tests, and benchmarks",
+        "A documented codegen boundary between generated artifacts and handwritten control code"
+      ],
+      "source_docs": [
+        "framework-decision.md",
+        "meep-gpu-core-spec.md",
+        "performance-benchmarking-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "The repo layout supports easy installation, testing, and iterative backend generation",
+        "Generated and handwritten code boundaries are explicit and reviewable"
+      ]
+    },
+    {
+      "id": "reference_device_suite",
+      "title": "Curate the canonical silicon-photonics and large-scale device suite",
+      "track": "benchmarking",
+      "priority": 11,
+      "depends_on": [
+        "benchmark_manifest"
+      ],
+      "outputs": [
+        "A curated device set spanning MMI, demultiplexers, waveguide bends, metalenses, antennas, and distributed stress cases",
+        "A mapping from each device to the physics features and monitors it exercises"
+      ],
+      "source_docs": [
+        "tidy3d-compatibility-and-benchmarks.md",
+        "performance-benchmarking-spec.md",
+        "vector-mode-solver-spec.md",
+        "gaps-and-investigation-areas.md"
+      ],
+      "success_criteria": [
+        "The suite stresses both accuracy and throughput across realistic photonics workloads",
+        "Single-GPU and multi-GPU headroom can be evaluated from the same manifest"
+      ]
+    }
+  ]
+}

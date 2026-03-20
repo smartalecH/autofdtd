@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "references": [
+    {
+      "id": "autoresearch",
+      "kind": "repo",
+      "role": "bootstrap-pattern reference",
+      "path_hint": "../autoresearch"
+    },
+    {
+      "id": "autokernel",
+      "kind": "repo",
+      "role": "autonomous kernel-optimization reference",
+      "path_hint": "../autokernel"
+    },
+    {
+      "id": "papers",
+      "kind": "repo",
+      "role": "paper corpus including Meep, systolic FDTD, and performance references",
+      "path_hint": "../papers"
+    },
+    {
+      "id": "phd_thesis",
+      "kind": "repo",
+      "role": "hybrid adjoint theory reference",
+      "path_hint": "../phd_thesis"
+    },
+    {
+      "id": "meep",
+      "kind": "repo",
+      "role": "primary solver and API compatibility reference",
+      "path_hint": "../meep"
+    },
+    {
+      "id": "tidy3d-notebooks",
+      "kind": "repo",
+      "role": "API and benchmark workload reference",
+      "path_hint": "../tidy3d-notebooks"
+    },
+    {
+      "id": "metalens",
+      "kind": "repo",
+      "role": "large-scale benchmark workload reference",
+      "path_hint": "../metalens"
+    },
+    {
+      "id": "warp",
+      "kind": "repo",
+      "role": "primary backend candidate reference",
+      "path_hint": "../warp"
+    },
+    {
+      "id": "pykokkos",
+      "kind": "repo",
+      "role": "backend candidate reference",
+      "path_hint": "../pykokkos"
+    },
+    {
+      "id": "taichi",
+      "kind": "repo",
+      "role": "backend candidate reference",
+      "path_hint": "../taichi"
+    },
+    {
+      "id": "fdtdx",
+      "kind": "repo",
+      "role": "runtime and adjoint workflow reference",
+      "path_hint": "../fdtdx"
+    },
+    {
+      "id": "Khronos.jl",
+      "kind": "repo",
+      "role": "Julia FDTD implementation reference",
+      "path_hint": "../Khronos.jl"
+    },
+    {
+      "id": "VectorModeSolver.jl",
+      "kind": "repo",
+      "role": "full-wave vector mode solver reference",
+      "path_hint": "../VectorModeSolver.jl"
+    },
+    {
+      "id": "GeometryPrimitives.jl",
+      "kind": "repo",
+      "role": "geometry primitive and voxel-fraction reference",
+      "path_hint": "../GeometryPrimitives.jl"
+    }
+  ]
+}
