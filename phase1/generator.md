@@ -14,6 +14,8 @@ You are working on Phase 1.
 
 Use `$captain-wiggum` to create a comprehensive, multi-task Ralph/Wiggum loop for Phase 1 execution. The resulting loop should be detailed enough to drive sustained autonomous work across architecture, package structure, implementation, testing, documentation, and reference-repo investigation.
 
+When generating the loop bundle, do substantial upfront research so the initial prompt and task graph are already informed by the key references, architectural constraints, and obvious implementation challenges. The loop should not begin from a blank slate.
+
 At a high level, Phase 1 must accomplish the following:
 
 * Build a pip-installable `autofdtd` package with proper `src/` layout, documentation, and tests.
@@ -34,6 +36,7 @@ The loop should preserve the following priorities and assumptions:
 * Every major task should include testing. The loop should assume the current machine has at least 2 NVIDIA GPUs available for useful testing.
 * Intentional logging and performance instrumentation are required, including metrics such as simulation initialization time, JIT time, and steady-state timestep rate after warmup.
 * Adjoint solving is out of scope for now.
+* The generated loop bundle should front-load enough research to make early implementation tasks actionable, while still leaving room for deeper task-specific investigation during loop execution.
 
 ## Core Architectural Tenets
 
@@ -92,6 +95,8 @@ The loop should explicitly create a Tidy3D feature inventory, including:
 * features that can be deferred from Phase 1,
 * features that should raise explicit errors until they are implemented.
 
+The loop should also identify, as early as possible, which kernel formulas, update rules, boundary-condition details, material-model details, geometry-discretization rules, and postprocessing formulas must be researched and settled before implementation can proceed safely.
+
 ## Important Submodules
 
 A strong FDTD package will need the following major submodules:
@@ -101,6 +106,12 @@ A strong FDTD package will need the following major submodules:
 * An IR definition and lowering pipeline. This should be treated as a first-class subsystem, not an implementation detail. It needs schema/design work, lowering from the public API, validation, serialization or inspectability as needed, and tests proving that realistic simulations map cleanly into it and can be executed from it.
 
 The IR should be inspectable and preferably serializable from the beginning, because that will simplify debugging, regression testing, reproducibility, and remote execution on clusters.
+
+The generated loop should use its artifacts intentionally:
+
+* `loop.prompt.md` should contain the deep upfront context gathered during bundle generation, including the most important architecture notes, reference pointers, and known implementation constraints.
+* `working-memory.md` should act as the durable running design notebook. It should accumulate settled kernel formulas, IR design decisions, normalization rules, feature conclusions, unsupported-feature policies, and other reusable findings discovered during execution.
+* `logs/` and `runs/` should be treated as execution history and raw evidence, not as the primary place to store durable technical decisions.
 
 ## Reference Material
 
@@ -133,7 +144,10 @@ The generated Ralph/Wiggum loop should be comprehensive but practical. It should
 
 * break the work into concrete tasks,
 * use subagents to explore the reference repos efficiently if needed,
+* do enough upfront research during bundle generation that the initial tasks already reflect the important kernel, IR, geometry, and API questions instead of discovering them too late,
 * make IR definition, compatibility mapping, and remote-execution demonstrations explicit deliverables for Phase 1,
+* include early research tasks that extract and document the canonical kernel update equations, boundary-condition formulas, material-model formulas, geometry discretization rules, and IR requirements needed for implementation,
+* ensure that important technical conclusions from those tasks are distilled into `working-memory.md` so later tasks inherit them directly,
 * keep future Meep frontend support in scope at the architectural level, even though Tidy3D is the only required Phase 1 API target,
 * define a policy for unsupported Phase 1 features, including whether they should raise explicit errors, use stubs, or be partially lowered with documented limitations,
 * include a small set of canonical validation examples, such as vacuum propagation, a dielectric slab or waveguide, a PML boundary case, a symmetry-reduced case, and a near-to-far example,
