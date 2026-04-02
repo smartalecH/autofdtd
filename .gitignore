@@ -1,7 +1,43 @@
+# Project outputs
 workspace/
 results.tsv
 build/
 dist/
+site/
+
+# Packaging
 *.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Python caches and bytecode
 __pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test and coverage artifacts
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Type checker and linter caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# Local tooling and editors
+.DS_Store
+.idea/
+.vscode/
