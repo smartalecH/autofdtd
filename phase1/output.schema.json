@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "status",
+    "summary",
+    "key_findings",
+    "artifacts",
+    "next_action"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "blocked",
+        "failed",
+        "needs_retry"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "key_findings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "description"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "error_summary": {
+      "type": "string"
+    },
+    "follow_up_notes": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string",
+      "enum": [
+        "none",
+        "retry",
+        "human_review"
+      ]
+    }
+  }
+}

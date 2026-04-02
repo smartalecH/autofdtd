@@ -1,0 +1,7 @@
+{
+  "codex_working_dir": "..",
+  "permission_mode": "workspace-write",
+  "failure_mode": "retry",
+  "exhaustion_mode": "stop cleanly",
+  "max_iterations": 100
+}

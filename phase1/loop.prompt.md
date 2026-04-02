@@ -1,0 +1,93 @@
+# Phase 1 Maxwell Solver Loop
+
+## Mission
+
+Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-installable, GPU-first FDTD package whose feature plan is anchored explicitly to the local Tidy3D EM API surface. The loop must produce a Tidy3D-inspired public API, a tagged execution IR, a scene-compilation pipeline, a chunk-based multi-node-ready runtime, Warp kernel conventions, concrete implementations for the highest-priority Tidy3D feature families, validation examples, and documentation without copying protected code or docs from any reference project.
+
+## Operator Policies
+
+- Failure policy: `retry`
+- Permission mode: `workspace-write`
+- End-of-list behavior: `stop cleanly`
+- Codex working directory: `..` (repo root relative to `phase1/`)
+
+## Global Execution Rules
+
+- Read relevant files before editing.
+- Keep progress notes concise and factual.
+- Treat `loop.spec.md` as the queue source of truth.
+- Report output that matches `output.schema.json`.
+- Use `completed` only when the task's success criteria were actually satisfied.
+- Use `needs_retry` when meaningful work was done but the success criteria are not yet fully met.
+- Use `blocked` only when an external dependency or missing input prevents further progress.
+- Use `failed` when the attempt is unusable or the task direction was not successfully carried out.
+- Prefer producing concrete artifacts and findings over generic summaries.
+- Keep `working-memory.md` concise and deduplicated.
+- Do not repeat reference material in `working-memory.md`; point to local files when possible.
+- Prefer recording file paths, decisions, and distilled facts instead of copying long passages.
+- Do substantial reference-backed work before implementation and keep updating working-memory.md with distilled decisions that later tasks should inherit.
+- Treat Tidy3D compatibility as a typed tagged object-model and lowering problem, not as a loose dict compatibility exercise.
+- Treat the local Tidy3D EM feature surface as the gold standard for feature planning and error-policy decisions in Phase 1.
+- Keep the mathematical stage graph separate from execution scheduling so bulk-synchronous stepping, overlap, and future systolic variants can coexist.
+- Separate scene modeling, scene compilation, runtime stepping, and IO or packaging into distinct subsystems.
+- Use NVIDIA Warp for GPU kernel implementation work and design kernels around stable module contents, persistent arrays, capture-safe stepping, and intentional instrumentation.
+- Do not build a monolithic everything-kernel. Prefer staged update kernels and capability-driven specialization by region or chunk.
+- Every substantive implementation task should include or update tests, examples, benchmarks, or instrumentation that exercise the new behavior.
+- When a Tidy3D feature is not yet supported, implement or document explicit validation or error behavior rather than leaving silent gaps.
+- Record initialization time, JIT time, warm steady-state timestep metrics, and cells-updated-per-second style metrics whenever solver execution paths become runnable.
+- Use local reference repos and papers aggressively for research, but do not copy protected code or documentation into this repository.
+- Assume the current machine has at least two NVIDIA GPUs available and use that for meaningful smoke tests where feasible.
+
+## Output Contract
+
+- `summary` should be a concise outcome statement.
+- `key_findings` should capture the most important concrete discoveries or decisions.
+- `artifacts` should list meaningful outputs with both `path` and `description`.
+- `error_summary` should be filled for `blocked` or `failed` runs and empty otherwise.
+- `next_action` should be `retry`, `human_review`, or `none`.
+## Reference Material
+
+### Reference 1
+
+Repository baseline at bundle generation time: the `autofdtd` repo has a minimal README, phase directories, and an effectively empty src tree. Phase 1 therefore starts from architecture, package skeleton, and subsystem contracts rather than refining an existing solver. The prep-generated feature ledger lives at `phase1/feature-checklist.md` and should be treated as input context for the loop, not as a loop deliverable.
+
+### Reference 2
+
+Tidy3D EM feature surface identified from the local codebase and schemas: Simulation plus Scene and Structure containers; geometry families including Box, Sphere, Cylinder, PolySlab, GeometryGroup, Transformed, ClipOperation, GeometryArray, and TriangleMesh-related paths; material families including Medium, PECMedium, PMCMedium, custom and dispersive isotropic media, PoleResidue, Sellmeier, Lorentz, Drude, Debye, LossyMetalMedium, AnisotropicMedium, FullyAnisotropicMedium, CustomAnisotropicMedium, PerturbationMedium, and Medium2D; boundary families including Periodic, PECBoundary, PMCBoundary, BlochBoundary, PML, StablePML, Absorber, ABCBoundary, ModeABCBoundary, Boundary, and BoundarySpec; source families including GaussianPulse, ContinuousWave, CustomSourceTime, BroadbandPulse, UniformCurrentSource, PointDipole, CustomCurrentSource, CustomFieldSource, ModeSource, PlaneWave, GaussianBeam, AstigmaticGaussianBeam, and TFSF; monitor families including FieldMonitor, FieldTimeMonitor, AuxFieldTimeMonitor, MediumMonitor, PermittivityMonitor, FluxMonitor, FluxTimeMonitor, ModeMonitor, ModeSolverMonitor, GaussianOverlapMonitor, AstigmaticGaussianOverlapMonitor, FieldProjectionAngleMonitor, DirectivityMonitor, FieldProjectionCartesianMonitor, FieldProjectionKSpaceMonitor, DiffractionMonitor, SurfaceFieldMonitor, and SurfaceFieldTimeMonitor; and grid or subpixel controls including UniformGrid, CustomGridBoundaries, CustomGrid, AutoGrid, QuasiUniformGrid, GridRefinement, LayerRefinementSpec, GridSpec, ModeSpec, and SubpixelSpec with staircasing and averaging variants. High-value references: `../tidy3d/tidy3d/components/simulation.py`, `../tidy3d/tidy3d/components/structure.py`, `../tidy3d/tidy3d/components/geometry/base.py`, `../tidy3d/tidy3d/components/geometry/primitives.py`, `../tidy3d/tidy3d/components/geometry/polyslab.py`, `../tidy3d/tidy3d/components/source/current.py`, `../tidy3d/tidy3d/components/source/field.py`, `../tidy3d/tidy3d/components/source/time.py`, `../tidy3d/tidy3d/components/monitor.py`, `../tidy3d/tidy3d/components/medium.py`, `../tidy3d/tidy3d/components/boundary.py`, `../tidy3d/tidy3d/components/grid/grid_spec.py`, `../tidy3d/tidy3d/components/mode_spec.py`, `../tidy3d/tidy3d/components/subpixel_spec.py`, and `../tidy3d/schemas/Simulation.json`.
+
+### Reference 3
+
+Tidy3D compatibility guidance for Phase 1: keep the public and IR models tagged, immutable, schema-driven, and validation-heavy; preserve named monitor access patterns and ordered structure semantics; and front-load an explicit feature matrix that distinguishes must-implement features, defer buckets, and reject-with-clear-error buckets rather than leaving gaps ambiguous.
+
+### Reference 4
+
+Meep architectural findings: the stable decomposition unit is the chunk rather than the rank; a rank may own multiple chunks; chunk ownership, symmetry reduction, and periodic or Bloch remapping behave like logical address transforms over a full-domain view; communication plans are stage-specific and component-family-specific; geometry and material initialization are separate from stepping; and near-to-far is a DFT-backed monitor family rather than a lightweight add-on. The Meep paper sharpens this further: the solver is designed to preserve an illusion of continuous space and time on top of chunked discrete execution, uses pervasive interpolation and restriction for sources, monitors, and field queries, relies on anisotropic subpixel smoothing to remove first-order interface error, and favors bulk region operations over pointwise APIs. High-value references: `../meep/doc/docs/Parallel_Meep.md`, `../meep/doc/docs/Chunks_and_Symmetry.md`, `../meep/src/structure.cpp`, `../meep/src/boundaries.cpp`, `../meep/src/fields.cpp`, `../meep/src/loop_in_chunks.cpp`, `../meep/src/near2far.cpp`, and `papers/meep_paper.pdf`.
+
+### Reference 5
+
+Warp backend findings: Warp kernels are Python-authored and JIT-compiled per module; all kernels in a module compile together and should be stabilized early to avoid reload churn. Arrays, vectors, matrices, and structs are strong fits for field buffers and metadata. CUDA launches are asynchronous; streams and events are first-class; graph capture and replay are realistic optimization targets for timestep loops; tile APIs are promising for later shared-memory optimizations but should not block a first Phase 1 backend; and built-in profiling via ScopedTimer, NVTX, and CUDA activity summaries is good enough for Phase 1 instrumentation. Benchmarking guidance from `papers/gpu_benchmarking.pdf` adds that FDTD should be tracked primarily in cells updated per second or Gcells/s, usually as a bandwidth-bound workload, and that benchmark metadata must preserve grid shape, total cells, timestep count, precision, boundary or material class, single-versus-multi-GPU context, and separate end-to-end versus steady-state timing.
+
+### Reference 6
+
+Scheduling findings from `papers/systolic_fdtd.pdf`: a naive GPU FDTD is constrained mostly by memory traffic and synchronization, so the important architectural seam is the split between chunk-local interior work, lower-dimensional boundary exchange, and a pluggable execution policy that may later delay or overlap neighbor consumption. Phase 1 should remain bulk-synchronous by default, but chunk metadata and runtime orchestration should already preserve per-face, per-stage halo semantics, interior-versus-boundary planning, and scheduler hooks so future systolic or overlapped execution can be added without redesign.
+
+### Reference 7
+
+Geometry and mode-solver findings: GeometryPrimitives.jl is centered on analytic shape queries such as level, nearest surface point, normals, bounds, and translation rather than a full scene graph. Orthogonal prisms and convex polygons are natural early scope; subpixel support exists mainly through local plane-cut overlap ideas rather than a full arbitrary-shape averaging engine; KD-tree and periodic replication patterns matter early; and libctl provides richer object-model and overlap-integral precedents for material-carrying ordered geometry lists and periodic duplication. VectorModesolver.jl is best treated as a formulation and interface reference rather than a polished dependency surface. It expects a sampled tensor-valued permittivity callback over a rectilinear cross-section, assembles a sparse operator, solves for magnetic fields, and reconstructs electric fields.
+
+### Reference 8
+
+Working-memory seed facts that later tasks should preserve: chunk is the architectural unit while rank or device is placement; stored topology and logical topology diverge because of symmetry and periodic or Bloch remapping; scene compilation must remain distinct from stepping; continuous problem specifications must lower through explicit interpolation and restriction into discrete execution artifacts; geometry lowering and materialization must precede serious kernels; subpixel smoothing can induce effective anisotropy even for physically isotropic materials; stage-specific halos and monitor metadata should be explicit; Tidy3D-style compatibility should be represented as a tagged immutable IR with normalization rules and unsupported-feature policy; runtime metrics should include Gcells/s plus separate end-to-end and steady-state timing; and near-to-far should be built on top of DFT monitor infrastructure rather than as an isolated feature.
+
+
+## Runtime Context
+
+- The runner injects the current task's title, success criteria, and notes from `loop.spec.md` on every iteration. Do not duplicate the full task catalog here.
+- Use `phase1/loop.spec.md` as the authoritative task board.
+- Use `phase1/feature-checklist.md` as the compact feature ledger for what Phase 1 should implement, defer, or reject clearly.
+- Use `phase1/kernel-formula-sources.md` as the compact source map for kernel formulas, update equations, and implementation references.
+- Keep the key architectural dependencies in mind while executing any task:
+  - mode solver work should precede `ModeSource` and mode-monitor workflows
+  - second-order subpixel smoothing depends on the anisotropic material representation and update path already working
+  - logging and convergence behavior are first-class runtime deliverables, not incidental byproducts
+  - kernel/runtime support must be explicit for materials, boundaries, sources, monitors, and postprocessing rather than implied by API support

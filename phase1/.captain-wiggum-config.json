@@ -1,0 +1,447 @@
+{
+  "mission_title": "Phase 1 Maxwell Solver Loop",
+  "mission_summary": "Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-installable, GPU-first FDTD package whose feature plan is anchored explicitly to the local Tidy3D EM API surface. The loop must produce a Tidy3D-inspired public API, a tagged execution IR, a scene-compilation pipeline, a chunk-based multi-node-ready runtime, Warp kernel conventions, concrete implementations for the highest-priority Tidy3D feature families, validation examples, and documentation without copying protected code or docs from any reference project.",
+  "codex_working_dir": "/Users/alechammond/GitHub/autofdtd",
+  "permission_mode": "workspace-write",
+  "failure_mode": "retry",
+  "exhaustion_mode": "stop cleanly",
+  "global_instructions": [
+    "Do substantial reference-backed work before implementation and keep updating working-memory.md with distilled decisions that later tasks should inherit.",
+    "Treat Tidy3D compatibility as a typed tagged object-model and lowering problem, not as a loose dict compatibility exercise.",
+    "Treat the local Tidy3D EM feature surface as the gold standard for feature planning and error-policy decisions in Phase 1.",
+    "Keep the mathematical stage graph separate from execution scheduling so bulk-synchronous stepping, overlap, and future systolic variants can coexist.",
+    "Separate scene modeling, scene compilation, runtime stepping, and IO or packaging into distinct subsystems.",
+    "Use NVIDIA Warp for GPU kernel implementation work and design kernels around stable module contents, persistent arrays, capture-safe stepping, and intentional instrumentation.",
+    "Do not build a monolithic everything-kernel. Prefer staged update kernels and capability-driven specialization by region or chunk.",
+    "Every substantive implementation task should include or update tests, examples, benchmarks, or instrumentation that exercise the new behavior.",
+    "When a Tidy3D feature is not yet supported, implement or document explicit validation or error behavior rather than leaving silent gaps.",
+    "Record initialization time, JIT time, warm steady-state timestep metrics, and cells-updated-per-second style metrics whenever solver execution paths become runnable.",
+    "Use local reference repos and papers aggressively for research, but do not copy protected code or documentation into this repository.",
+    "Assume the current machine has at least two NVIDIA GPUs available and use that for meaningful smoke tests where feasible."
+  ],
+  "reference_material": [
+    "Repository baseline at bundle generation time: /Users/alechammond/GitHub/autofdtd has a minimal README, phase directories, and an effectively empty src tree. Phase 1 therefore starts from architecture, package skeleton, and subsystem contracts rather than refining an existing solver. The prep-generated feature ledger lives at /Users/alechammond/GitHub/autofdtd/phase1/feature-checklist.md and should be treated as input context for the loop, not as a loop deliverable.",
+    "Tidy3D EM feature surface identified from the local codebase and schemas: Simulation plus Scene and Structure containers; geometry families including Box, Sphere, Cylinder, PolySlab, GeometryGroup, Transformed, ClipOperation, GeometryArray, and TriangleMesh-related paths; material families including Medium, PECMedium, PMCMedium, custom and dispersive isotropic media, PoleResidue, Sellmeier, Lorentz, Drude, Debye, LossyMetalMedium, AnisotropicMedium, FullyAnisotropicMedium, CustomAnisotropicMedium, PerturbationMedium, and Medium2D; boundary families including Periodic, PECBoundary, PMCBoundary, BlochBoundary, PML, StablePML, Absorber, ABCBoundary, ModeABCBoundary, Boundary, and BoundarySpec; source families including GaussianPulse, ContinuousWave, CustomSourceTime, BroadbandPulse, UniformCurrentSource, PointDipole, CustomCurrentSource, CustomFieldSource, ModeSource, PlaneWave, GaussianBeam, AstigmaticGaussianBeam, and TFSF; monitor families including FieldMonitor, FieldTimeMonitor, AuxFieldTimeMonitor, MediumMonitor, PermittivityMonitor, FluxMonitor, FluxTimeMonitor, ModeMonitor, ModeSolverMonitor, GaussianOverlapMonitor, AstigmaticGaussianOverlapMonitor, FieldProjectionAngleMonitor, DirectivityMonitor, FieldProjectionCartesianMonitor, FieldProjectionKSpaceMonitor, DiffractionMonitor, SurfaceFieldMonitor, and SurfaceFieldTimeMonitor; and grid or subpixel controls including UniformGrid, CustomGridBoundaries, CustomGrid, AutoGrid, QuasiUniformGrid, GridRefinement, LayerRefinementSpec, GridSpec, ModeSpec, and SubpixelSpec with staircasing and averaging variants. High-value references: ../tidy3d/tidy3d/components/simulation.py, ../tidy3d/tidy3d/components/structure.py, ../tidy3d/tidy3d/components/geometry/base.py, ../tidy3d/tidy3d/components/geometry/primitives.py, ../tidy3d/tidy3d/components/geometry/polyslab.py, ../tidy3d/tidy3d/components/source/current.py, ../tidy3d/tidy3d/components/source/field.py, ../tidy3d/tidy3d/components/source/time.py, ../tidy3d/tidy3d/components/monitor.py, ../tidy3d/tidy3d/components/medium.py, ../tidy3d/tidy3d/components/boundary.py, ../tidy3d/tidy3d/components/grid/grid_spec.py, ../tidy3d/tidy3d/components/mode_spec.py, ../tidy3d/tidy3d/components/subpixel_spec.py, and ../tidy3d/schemas/Simulation.json.",
+    "Tidy3D compatibility guidance for Phase 1: keep the public and IR models tagged, immutable, schema-driven, and validation-heavy; preserve named monitor access patterns and ordered structure semantics; and front-load an explicit feature matrix that distinguishes must-implement features, defer buckets, and reject-with-clear-error buckets rather than leaving gaps ambiguous.",
+    "Meep architectural findings: the stable decomposition unit is the chunk rather than the rank; a rank may own multiple chunks; chunk ownership, symmetry reduction, and periodic or Bloch remapping behave like logical address transforms over a full-domain view; communication plans are stage-specific and component-family-specific; geometry and material initialization are separate from stepping; and near-to-far is a DFT-backed monitor family rather than a lightweight add-on. The Meep paper sharpens this further: the solver is designed to preserve an illusion of continuous space and time on top of chunked discrete execution, uses pervasive interpolation and restriction for sources, monitors, and field queries, relies on anisotropic subpixel smoothing to remove first-order interface error, and favors bulk region operations over pointwise APIs. High-value references: ../meep/doc/docs/Parallel_Meep.md, ../meep/doc/docs/Chunks_and_Symmetry.md, ../meep/src/structure.cpp, ../meep/src/boundaries.cpp, ../meep/src/fields.cpp, ../meep/src/loop_in_chunks.cpp, ../meep/src/near2far.cpp, and papers/meep_paper.pdf.",
+    "Warp backend findings: Warp kernels are Python-authored and JIT-compiled per module; all kernels in a module compile together and should be stabilized early to avoid reload churn. Arrays, vectors, matrices, and structs are strong fits for field buffers and metadata. CUDA launches are asynchronous; streams and events are first-class; graph capture and replay are realistic optimization targets for timestep loops; tile APIs are promising for later shared-memory optimizations but should not block a first Phase 1 backend; and built-in profiling via ScopedTimer, NVTX, and CUDA activity summaries is good enough for Phase 1 instrumentation. Benchmarking guidance from papers/gpu_benchmarking.pdf adds that FDTD should be tracked primarily in cells updated per second or Gcells/s, usually as a bandwidth-bound workload, and that benchmark metadata must preserve grid shape, total cells, timestep count, precision, boundary or material class, single-versus-multi-GPU context, and separate end-to-end versus steady-state timing.",
+    "Scheduling findings from papers/systolic_fdtd.pdf: a naive GPU FDTD is constrained mostly by memory traffic and synchronization, so the important architectural seam is the split between chunk-local interior work, lower-dimensional boundary exchange, and a pluggable execution policy that may later delay or overlap neighbor consumption. Phase 1 should remain bulk-synchronous by default, but chunk metadata and runtime orchestration should already preserve per-face, per-stage halo semantics, interior-versus-boundary planning, and scheduler hooks so future systolic or overlapped execution can be added without redesign.",
+    "Geometry and mode-solver findings: GeometryPrimitives.jl is centered on analytic shape queries such as level, nearest surface point, normals, bounds, and translation rather than a full scene graph. Orthogonal prisms and convex polygons are natural early scope; subpixel support exists mainly through local plane-cut overlap ideas rather than a full arbitrary-shape averaging engine; KD-tree and periodic replication patterns matter early; and libctl provides richer object-model and overlap-integral precedents for material-carrying ordered geometry lists and periodic duplication. VectorModesolver.jl is best treated as a formulation and interface reference rather than a polished dependency surface. It expects a sampled tensor-valued permittivity callback over a rectilinear cross-section, assembles a sparse operator, solves for magnetic fields, and reconstructs electric fields. High-value references: ../GeometryPrimitives.jl, ../libctl, and ../VectorModesolver.jl.",
+    "Working-memory seed facts that later tasks should preserve: chunk is the architectural unit while rank or device is placement; stored topology and logical topology diverge because of symmetry and periodic or Bloch remapping; scene compilation must remain distinct from stepping; continuous problem specifications must lower through explicit interpolation and restriction into discrete execution artifacts; geometry lowering and materialization must precede serious kernels; subpixel smoothing can induce effective anisotropy even for physically isotropic materials; stage-specific halos and monitor metadata should be explicit; Tidy3D-style compatibility should be represented as a tagged immutable IR with normalization rules and unsupported-feature policy; runtime metrics should include Gcells/s plus separate end-to-end and steady-state timing; and near-to-far should be built on top of DFT monitor infrastructure rather than as an isolated feature."
+  ],
+  "tasks": [
+    {
+      "task_id": "task-001",
+      "title": "Create the package, tooling, and docs scaffold around the planned feature surface",
+      "success_criteria": "Create a pip-installable src-layout package with module namespaces, development tooling, test entrypoints, and docs scaffolding that are aligned with the feature checklist and subsystem boundaries.",
+      "notes": "The Tidy3D feature checklist is already part of prep and should be consumed here rather than regenerated.",
+      "implementation_details": "Add pyproject and src layout, create initial namespaces for api, ir, compiler, geometry, backend, runtime, monitors, postprocess, validation, and docs, and add smoke tests that prove the scaffold imports and basic package flows work."
+    },
+    {
+      "task_id": "task-002",
+      "title": "Implement the tagged core Simulation, Scene, and Structure data model",
+      "success_criteria": "Provide the foundational public and IR-facing container models for Simulation, Scene, and Structure, including ordered structure semantics, names, priority behavior, and serialization scaffolding.",
+      "notes": "This is the container backbone that many later feature tasks depend on.",
+      "implementation_details": "Mirror the Tidy3D-inspired object graph with tagged models, ordered structures, scene composition, and stable serialization hooks. Include tests for ordering, naming, and baseline model validation."
+    },
+    {
+      "task_id": "task-003",
+      "title": "Define the tagged execution IR and serialization contract",
+      "success_criteria": "Land an inspectable, versioned IR schema and serialization plan that can represent realistic Phase 1 simulations independently of the public API and is suitable for local or remote execution packaging.",
+      "notes": "The IR should be specific enough to support later feature tasks without redesign.",
+      "implementation_details": "Design IR entities for simulations, structures, geometry, materials, boundaries, sources, monitors, grids, runtime controls, normalization metadata, and execution metadata. Make sure the IR distinguishes logical topology from stored topology."
+    },
+    {
+      "task_id": "task-004",
+      "title": "Implement core normalization and validation behavior",
+      "success_criteria": "Provide validation and normalization passes for names, bounds, basic shape constraints, unsupported-feature errors, and selected warn-and-coerce behaviors that align with the feature checklist.",
+      "notes": "This task should make later feature work safer instead of treating validation as cleanup at the end.",
+      "implementation_details": "Implement validation layers for unique names, object containment, basic plane or volume constraints, unsupported combinations, and a documented set of Tidy3D-inspired normalization behaviors where practical."
+    },
+    {
+      "task_id": "task-005",
+      "title": "Implement shared model-base and serialization helpers",
+      "success_criteria": "Provide the shared base-model, tagging, copy-or-update, and serialization helpers needed by the public API and IR layers so later feature tasks build on a common contract.",
+      "notes": "This keeps tagging and serialization from being reimplemented ad hoc in every feature family.",
+      "implementation_details": "Implement the core base-model behavior for tagged models, copy-or-update helpers, schema serialization, and shared metadata handling that later Simulation, Structure, material, source, monitor, and data models can reuse."
+    },
+    {
+      "task_id": "task-006",
+      "title": "Implement primitive geometry support for Box, Sphere, and Cylinder",
+      "success_criteria": "Provide public and IR representations plus tests for Box, Sphere, and Cylinder geometries, including bounds, transforms needed for scene compilation, and precedence interaction inside structures.",
+      "notes": "Start with the simplest Tidy3D geometry primitives first.",
+      "implementation_details": "Implement the foundational primitive geometry types, basic coordinate handling, bounds, and scene integration tests so later compilation tasks have stable geometry inputs."
+    },
+    {
+      "task_id": "task-007",
+      "title": "Implement PolySlab and polygon-driven geometry support",
+      "success_criteria": "Support PolySlab-style polygon extrusion geometry with explicit scope and limitation documentation, plus tests that cover representative planar photonics cases.",
+      "notes": "This is one of the most important geometry families for Tidy3D-style compatibility.",
+      "implementation_details": "Use the local tidy3d and GeometryPrimitives references to implement polygon-based slab geometry, with explicit error handling for unsupported edge cases and tests for common extrusion scenarios."
+    },
+    {
+      "task_id": "task-008",
+      "title": "Implement geometry grouping, transforms, and clip-style wrappers",
+      "success_criteria": "Provide GeometryGroup-style composition plus the minimum transform and clip operation support needed for credible Phase 1 scene construction.",
+      "notes": "This task should turn individual primitives into useful scene-building blocks.",
+      "implementation_details": "Implement group composition, transformed geometry wrappers, and a scoped clip or boolean-like wrapper policy, with explicit defer or reject behavior for cases that exceed Phase 1 scope."
+    },
+    {
+      "task_id": "task-009",
+      "title": "Implement geometry arrays, precedence, and repeated placement semantics",
+      "success_criteria": "Support repeated or array-style geometry placement and explicit precedence semantics for ordered structures with tests that verify overlap behavior.",
+      "notes": "This is where structure ordering becomes concrete.",
+      "implementation_details": "Implement ordered object-list semantics, repeated placement helpers, and overlap resolution tests so geometry compilation later has deterministic material precedence."
+    },
+    {
+      "task_id": "task-010",
+      "title": "Implement grid controls for UniformGrid, CustomGrid, and GridSpec core paths",
+      "success_criteria": "Provide the core grid specification surface needed for Phase 1 simulations, including uniform grids, custom boundaries or custom grids, and GridSpec-style composition.",
+      "notes": "Grid support should be concrete enough to drive later discretization and mode-solver work.",
+      "implementation_details": "Implement uniform and custom grid specification models, baseline validation, and tests that confirm grid definitions lower correctly into compiled discretization metadata."
+    },
+    {
+      "task_id": "task-011",
+      "title": "Implement AutoGrid and refinement-spec planning surfaces",
+      "success_criteria": "Support an initial AutoGrid-style and refinement-spec surface with clear limitations and lowering behavior, even if the first meshing policy is simpler than Tidy3D's full behavior.",
+      "notes": "This task can begin with planning or simplified refinement behavior, but it must not be hand-wavy.",
+      "implementation_details": "Implement the public and IR models for AutoGrid, QuasiUniformGrid, GridRefinement, and LayerRefinementSpec, and define what Phase 1 actually honors versus rejects."
+    },
+    {
+      "task_id": "task-012",
+      "title": "Implement SubpixelSpec and core averaging policy models",
+      "success_criteria": "Provide SubpixelSpec-style controls and the core averaging or staircasing policy representations needed to drive geometry materialization behavior.",
+      "notes": "This task is about policy modeling before the heavier compiler behavior lands.",
+      "implementation_details": "Implement the public and IR models for staircasing and supported averaging methods, define which policies are active in Phase 1, and add validation tests for unsupported combinations."
+    },
+    {
+      "task_id": "task-013",
+      "title": "Implement isotropic Medium, PECMedium, and PMCMedium with coefficient compilation and constitutive kernels",
+      "success_criteria": "Support the foundational isotropic material family, including plain Medium and perfect-conductor medium variants, with tests for serialization, validation, structure application, coefficient preparation, and the corresponding constitutive-update kernel paths.",
+      "notes": "These are the baseline material types many later tasks assume exist.",
+      "implementation_details": "Implement the core isotropic medium surface, map it cleanly into the IR and compilation pipeline, generate the required runtime coefficients, and add or wire the constitutive kernels used by the main timestep path."
+    },
+    {
+      "task_id": "task-014",
+      "title": "Implement PoleResidue medium support with coefficient prep and update kernels",
+      "success_criteria": "Support PoleResidue-style dispersive media with explicit API and IR models, coefficient preparation, auxiliary-state handling, update-kernel support, and representative tests.",
+      "notes": "Keep PoleResidue separate because it is the most general dispersive family and often subsumes the others conceptually.",
+      "implementation_details": "Implement PoleResidue modeling, IR lowering, coefficient preparation, auxiliary-field or state allocation, and the update-kernel hooks needed by the timestep loop. Make unsupported parameterizations fail clearly."
+    },
+    {
+      "task_id": "task-015",
+      "title": "Implement Sellmeier medium support with coefficient prep and update kernels",
+      "success_criteria": "Support Sellmeier media or a clearly documented supported subset, including API and IR models, coefficient preparation, update-kernel support, and representative validation tests.",
+      "notes": "This stays separate so optical-material support is not hidden inside a large dispersive bucket.",
+      "implementation_details": "Implement Sellmeier modeling, IR lowering, coefficient preparation, and the update-kernel path or lowering bridge used to realize it in the timestep loop. Document any approximation or limitation explicitly."
+    },
+    {
+      "task_id": "task-016",
+      "title": "Implement Lorentz, Drude, and Debye medium support with update kernels",
+      "success_criteria": "Support Lorentz, Drude, and Debye medium families or a clearly delimited subset, including API and IR models, coefficient preparation, update-kernel support, and tests that show each family exercises the intended constitutive path.",
+      "notes": "These families are close enough to share a task without becoming ambiguous if the tests name each family explicitly.",
+      "implementation_details": "Implement the supported Lorentz, Drude, and Debye models, map them into the IR and runtime coefficient structures, allocate any auxiliary state they need, and wire the corresponding constitutive update kernels."
+    },
+    {
+      "task_id": "task-017",
+      "title": "Implement anisotropic medium families, Medium2D policy, and anisotropic kernel support",
+      "success_criteria": "Support the initial anisotropic medium surface, including a clear policy for AnisotropicMedium, FullyAnisotropicMedium, and Medium2D-related behavior, with explicit tests, limitations, coefficient preparation, and anisotropic kernel support.",
+      "notes": "This task should respect the fact that subpixel smoothing can create effective anisotropy and must land before second-order subpixel materialization is treated as implemented.",
+      "implementation_details": "Implement the public and IR models for supported anisotropic families, define the boundary between implemented and rejected cases, compile the necessary tensor coefficients, and make sure the main timestep path can branch on effective material class."
+    },
+    {
+      "task_id": "task-018",
+      "title": "Implement perturbation, lossy-metal, and advanced-material defer buckets",
+      "success_criteria": "Provide an explicit Phase 1 handling policy for PerturbationMedium, LossyMetalMedium, custom media, and other advanced material families so the API surface is mapped rather than ignored.",
+      "notes": "This is intentionally a policy-heavy task if full implementation is not yet realistic.",
+      "implementation_details": "Implement what is practical, reject what is not, and make sure the feature matrix and runtime validations stay consistent with those decisions."
+    },
+    {
+      "task_id": "task-019",
+      "title": "Implement boundary support for Periodic, PECBoundary, PMCBoundary, and Boundary containers",
+      "success_criteria": "Support the foundational non-absorbing boundary surface, including Boundary and BoundarySpec composition, periodic behavior, conductor boundaries, and the runtime transform or kernel support needed by the timestep loop.",
+      "notes": "These are the first boundary primitives the compiler and runtime should rely on.",
+      "implementation_details": "Implement the public and IR models for the baseline boundary families, tests for axis-wise and all-sides boundary composition, and the runtime transform or kernel support needed for conductor and periodic boundary behavior."
+    },
+    {
+      "task_id": "task-020",
+      "title": "Implement BlochBoundary, symmetry-aware metadata, and phase-aware runtime transforms",
+      "success_criteria": "Provide BlochBoundary support and the related symmetry-aware metadata and runtime transform support needed for chunk planning and execution lowering.",
+      "notes": "This task is important because periodic-phase behavior leaks into runtime metadata and not just public API models.",
+      "implementation_details": "Implement Bloch boundary modeling, validation, and lowering into logical-versus-stored topology metadata, plus the phase-aware runtime transform support that the timestep and halo paths need."
+    },
+    {
+      "task_id": "task-021",
+      "title": "Implement PML boundary support with coefficient prep and kernel stages",
+      "success_criteria": "Support PML boundaries with explicit API and IR models, coefficient preparation, boundary-layer state allocation, kernel-stage integration, and representative absorption tests.",
+      "notes": "PML is important enough to deserve its own task instead of sharing a generic absorbing-boundary bucket.",
+      "implementation_details": "Implement PML modeling, lowering, coefficient preparation, and the kernel-stage hooks needed to update PML state and couple it to the main Yee update sequence."
+    },
+    {
+      "task_id": "task-022",
+      "title": "Implement StablePML and Absorber boundary support with coefficient prep and kernel stages",
+      "success_criteria": "Support StablePML and Absorber boundaries or a clearly delimited subset, including API and IR models, coefficient preparation, kernel-stage integration, and representative tests for practical absorbing-boundary behavior.",
+      "notes": "StablePML and Absorber are separate enough from baseline PML to justify their own task.",
+      "implementation_details": "Implement the supported StablePML and Absorber variants, wire them into coefficient preparation and boundary-update kernel stages, and make unsupported edge cases fail clearly."
+    },
+    {
+      "task_id": "task-023",
+      "title": "Implement ABCBoundary, ModeABCBoundary, and advanced boundary defer policy",
+      "success_criteria": "Provide an explicit Phase 1 treatment for ABCBoundary, ModeABCBoundary, and other specialized boundary variants, including concrete implementation where practical and clear reject-or-defer behavior otherwise.",
+      "notes": "This task prevents specialized Tidy3D boundary features from disappearing into ambiguity.",
+      "implementation_details": "Implement the parts that are practical, document or enforce the defer policy for the rest, and keep the feature matrix and runtime validations aligned."
+    },
+    {
+      "task_id": "task-024",
+      "title": "Implement Simulation runtime controls for timestep count, shutoff, and convergence policy",
+      "success_criteria": "Support the core Simulation runtime-control surface needed for practical runs, including run-time or step-count control, shutoff or early-stop criteria, and clearly defined convergence-related behavior.",
+      "notes": "This task makes convergence and stop behavior explicit instead of leaving it buried inside the simulation loop.",
+      "implementation_details": "Implement runtime-control fields and normalization for timestep count, run duration, Courant-related controls, and shutoff or convergence thresholds. Lower them into explicit runtime policy objects that the execution loop can honor and test."
+    },
+    {
+      "task_id": "task-025",
+      "title": "Implement detailed simulation logging, progress reporting, and convergence evidence capture",
+      "success_criteria": "Execution paths emit structured progress logs, stop-reason records, convergence or shutoff evidence, and enough runtime detail to diagnose practical simulation behavior during end-to-end runs.",
+      "notes": "Keep this distinct from benchmark metrics so debugging and validation remain first-class.",
+      "implementation_details": "Implement structured execution logging, progress reporting hooks, step or interval diagnostics, stop-reason capture, convergence or shutoff evidence records, and tests that verify the execution loop emits understandable and machine-readable logs."
+    },
+    {
+      "task_id": "task-026",
+      "title": "Implement GaussianPulse and ContinuousWave source-time profiles",
+      "success_criteria": "Support GaussianPulse and ContinuousWave source-time profiles with explicit parameter validation, serialization, IR lowering, and representative waveform tests.",
+      "notes": "These are the two most common source-time profiles and should be available early.",
+      "implementation_details": "Implement GaussianPulse and ContinuousWave objects, their normalization and validation behavior, their IR lowering, and tests that confirm expected waveform metadata and scheduling semantics."
+    },
+    {
+      "task_id": "task-027",
+      "title": "Implement BroadbandPulse and CustomSourceTime profiles",
+      "success_criteria": "Support BroadbandPulse and CustomSourceTime or a clearly delimited subset, including API and IR models, validation behavior, and representative tests.",
+      "notes": "Keep the more specialized source-time families separate so missing behavior cannot hide behind the common waveforms.",
+      "implementation_details": "Implement BroadbandPulse and supported CustomSourceTime behavior, normalize and validate their parameters, lower them into source-time metadata, and document any restrictions clearly."
+    },
+    {
+      "task_id": "task-028",
+      "title": "Implement UniformCurrentSource with placement semantics and injection kernels",
+      "success_criteria": "Support UniformCurrentSource with explicit placement semantics, source-time integration, IR lowering, injection-kernel support, and representative end-to-end tests.",
+      "notes": "This is the cleanest current-source family and should come before the more specialized dipole and custom cases.",
+      "implementation_details": "Implement UniformCurrentSource modeling, placement validation, lowering into source injection metadata, and the injection-kernel stages needed by the runtime loop."
+    },
+    {
+      "task_id": "task-029",
+      "title": "Implement PointDipole and CustomCurrentSource with injection kernels",
+      "success_criteria": "Support PointDipole and CustomCurrentSource or a clearly supported subset, including validation, IR lowering, injection-kernel support, and representative tests.",
+      "notes": "PointDipole is important because it stresses interpolation and restriction behavior directly.",
+      "implementation_details": "Implement PointDipole and supported CustomCurrentSource behavior, lower them into source injection metadata, and wire the corresponding injection-kernel paths or explicit reject behavior."
+    },
+    {
+      "task_id": "task-030",
+      "title": "Implement CustomFieldSource with field-injection runtime support",
+      "success_criteria": "Support CustomFieldSource or a clearly delimited subset, including validation, IR lowering, field-injection runtime support, and representative tests.",
+      "notes": "Keep this separate from ModeSource so the solver-coupled path stays explicit.",
+      "implementation_details": "Implement CustomFieldSource modeling, validation, lowering into field-injection metadata, and the runtime or kernel support needed to inject it during stepping."
+    },
+    {
+      "task_id": "task-031",
+      "title": "Implement the vector mode solver integration path",
+      "success_criteria": "Introduce a GPU-capable or GPU-ready mode-solver subsystem whose interface is compatible with sampled epsilon tensors over deterministic cross-sections and includes tests for representative cases.",
+      "notes": "Use VectorModesolver.jl as a formulation and interface reference, not as a blind dependency surface. This task intentionally lands before ModeSource and mode-monitor work.",
+      "implementation_details": "Define the mode-solver interface, geometry-to-cross-section sampling bridge, boundary-condition representation, and output objects. Start with isotropic cases while preserving the tensor-returning interface expected by the reference formulation."
+    },
+    {
+      "task_id": "task-032",
+      "title": "Implement ModeSource with solver-backed mode definitions and injection support",
+      "success_criteria": "Support ModeSource with explicit integration into the mode-solver or mode-definition surface, including validation, IR lowering, source planning, injection support, and representative tests.",
+      "notes": "This task comes after the mode solver on purpose so it has a real backend to target.",
+      "implementation_details": "Implement ModeSource modeling, validation, lowering, and the mode-solver linkage needed to obtain injected field profiles. Wire the resulting source plans into the runtime or kernel injection path."
+    },
+    {
+      "task_id": "task-033",
+      "title": "Implement PlaneWave plus angular-spec models and injection support",
+      "success_criteria": "Support PlaneWave along with the angular-spec models it needs, including validation, IR lowering, source planning, injection support, and representative tests.",
+      "notes": "PlaneWave is a core optical source and should not be hidden inside a broader beam-source task.",
+      "implementation_details": "Implement FixedAngleSpec, FixedInPlaneKSpec, and PlaneWave support with tests for representative angular-source setups and the runtime or kernel support needed to inject them."
+    },
+    {
+      "task_id": "task-034",
+      "title": "Implement GaussianBeam and AstigmaticGaussianBeam with injection support",
+      "success_criteria": "Support GaussianBeam and AstigmaticGaussianBeam or a clearly delimited subset, including validation, source planning, injection support, and representative tests.",
+      "notes": "Beam sources have enough parameter and geometry complexity to deserve their own task.",
+      "implementation_details": "Implement GaussianBeam and AstigmaticGaussianBeam support, validate their beam-parameter semantics, lower them into source plans, and wire the runtime or kernel support needed to inject them."
+    },
+    {
+      "task_id": "task-035",
+      "title": "Implement TFSF support and source-frame policy",
+      "success_criteria": "Support the TFSF source family and any required source-frame metadata, boundary interaction logic, and runtime injection support, or provide explicit Phase 1 limitation handling.",
+      "notes": "TFSF is important enough to deserve its own task because of its runtime implications.",
+      "implementation_details": "Implement the public and IR models for TFSF and related frame metadata, plus the runtime injection and boundary interaction support it requires, or explicitly constrain and reject unsupported cases with documented errors."
+    },
+    {
+      "task_id": "task-036",
+      "title": "Implement the monitor naming and SimulationData access model",
+      "success_criteria": "Provide the foundational monitor naming, result-registration, and SimulationData-style access pattern that later monitor tasks will populate.",
+      "notes": "This is the common data contract for all monitor feature families.",
+      "implementation_details": "Implement monitor registration, named access semantics, and the initial monitor-data container contracts so later feature tasks can accumulate concrete data products."
+    },
+    {
+      "task_id": "task-037",
+      "title": "Implement field-monitor families for FieldMonitor, FieldTimeMonitor, and AuxFieldTimeMonitor",
+      "success_criteria": "Support the core field-monitor families with runtime state, accumulation kernels, and tests for representative field recording cases.",
+      "notes": "These are the bread-and-butter monitor types and should be ready before more specialized monitors.",
+      "implementation_details": "Implement field and time-domain field recording monitor support, including the supported colocated or interval behaviors needed for Phase 1 and the field-sampling kernels that feed these monitors."
+    },
+    {
+      "task_id": "task-038",
+      "title": "Implement medium-property monitors for MediumMonitor and PermittivityMonitor",
+      "success_criteria": "Support the main medium-property monitor families, integrate them with the geometry-material compilation path, and provide the extraction kernels or runtime paths they need.",
+      "notes": "These monitors help validate materialization and geometry lowering directly.",
+      "implementation_details": "Implement the public, IR, and runtime behavior for medium-property monitoring, the extraction kernels or runtime paths they need, and tests that verify correct data extraction over compiled scenes."
+    },
+    {
+      "task_id": "task-039",
+      "title": "Implement flux-monitor families for FluxMonitor and FluxTimeMonitor",
+      "success_criteria": "Support the core flux-monitor families with integration behavior, flux-integration kernels, data products, and tests for representative energy-flow setups.",
+      "notes": "Flux monitoring is foundational for many optical validation examples.",
+      "implementation_details": "Implement the public, IR, and runtime behavior for flux monitoring and its time-domain variant, including integration metadata, the flux-integration kernels they need, and tests."
+    },
+    {
+      "task_id": "task-040",
+      "title": "Implement mode-monitor families for ModeMonitor and ModeSolverMonitor",
+      "success_criteria": "Support the main mode-monitor families, connect them to the mode-solver or mode-analysis surface expected in Phase 1, and provide the overlap or projection kernels they require.",
+      "notes": "These monitors bridge runtime fields and the mode-solver subsystem, so they come after the mode solver intentionally.",
+      "implementation_details": "Implement the public, IR, and runtime behavior for mode monitors, the overlap or projection kernels they require, and any explicit defer logic for unsupported advanced cases."
+    },
+    {
+      "task_id": "task-041",
+      "title": "Implement overlap-monitor families for GaussianOverlapMonitor variants",
+      "success_criteria": "Provide GaussianOverlapMonitor and AstigmaticGaussianOverlapMonitor support or a documented and enforced defer policy consistent with the feature matrix.",
+      "notes": "This task is narrow on purpose so its scope stays clear.",
+      "implementation_details": "Implement the supported overlap-monitor subset, or reject unsupported cases clearly while keeping the API surface mapped."
+    },
+    {
+      "task_id": "task-042",
+      "title": "Implement projection and far-field monitor families",
+      "success_criteria": "Support FieldProjectionAngleMonitor, FieldProjectionCartesianMonitor, FieldProjectionKSpaceMonitor, and DirectivityMonitor or a documented Phase 1 subset with clear error behavior and explicit projection-kernel support.",
+      "notes": "Projection monitors have many edge cases, so keep the task focused and explicit.",
+      "implementation_details": "Implement the supported projection-monitor subset, the projection-kernel paths they require, and document which dimensional or medium restrictions remain deferred."
+    },
+    {
+      "task_id": "task-043",
+      "title": "Implement DiffractionMonitor and diffraction-specific limitations",
+      "success_criteria": "Provide DiffractionMonitor support or a narrow supported subset with explicit validation for unsupported order-count or medium constraints and the corresponding diffraction-kernel support.",
+      "notes": "Diffraction is important enough to split out from the other projection monitors.",
+      "implementation_details": "Implement the public, IR, and runtime behavior for the supported diffraction-monitor cases, the diffraction-kernel support they require, and document remaining restrictions."
+    },
+    {
+      "task_id": "task-044",
+      "title": "Implement surface-field monitor families",
+      "success_criteria": "Support SurfaceFieldMonitor and SurfaceFieldTimeMonitor or a documented subset with explicit runtime behavior, surface-sampling kernels, and tests.",
+      "notes": "Surface monitors are useful both directly and as building blocks for postprocessing.",
+      "implementation_details": "Implement the public, IR, and runtime behavior for surface field monitors, the surface-sampling kernels they require, and verify their data contracts and shape handling."
+    },
+    {
+      "task_id": "task-045",
+      "title": "Build the scene-compilation pipeline from public API and IR into compiled runtime artifacts",
+      "success_criteria": "Document and begin implementing a compiler-style pipeline that lowers validated public API objects into IR and then into coefficient fields, source plans, monitor plans, chunk metadata, and runtime arrays.",
+      "notes": "This task ties the feature-specific surfaces into an executable spine.",
+      "implementation_details": "Define subsystem boundaries for normalization, geometry placement, material coefficient generation, source planning, monitor planning, and runtime array allocation. Use fdtdx and Khronos.jl patterns for container boundaries and compiled runtime state."
+    },
+    {
+      "task_id": "task-046",
+      "title": "Implement geometry discretization, interpolation, and subpixel materialization",
+      "success_criteria": "Build the geometry-to-grid compilation path that handles precedence, interpolation or restriction concerns, coefficient sampling, and a scoped first pass at subpixel smoothing with tests.",
+      "notes": "This is where the geometry and material feature families become runtime data. Second-order subpixel smoothing depends on the anisotropic material path already existing.",
+      "implementation_details": "Map analytic geometry into Yee-aligned or rectilinear coefficient arrays, preserve a deterministic meshing or sampling layer, treat interpolation and restriction as first-class compiler concerns, and account for the fact that subpixel smoothing may create effective anisotropic material behavior. Do not claim second-order subpixel smoothing until the anisotropic material representation and update path are already working."
+    },
+    {
+      "task_id": "task-047",
+      "title": "Define the chunk contract and multi-node decomposition architecture",
+      "success_criteria": "Land an architecture note that defines what a chunk owns, how chunks expose halo and monitor metadata, how chunk placement maps onto devices or nodes, and how this avoids blocking later phases.",
+      "notes": "Base this on the Meep findings that chunk is the core architectural unit rather than rank.",
+      "implementation_details": "Use the researched Meep sources, docs, and Meep paper to define stored-versus-logical topology, chunk-local metadata, stage-specific and face-specific halo descriptions, boundary and Bloch remapping hooks, owned-versus-ghost semantics, and future placement or rebalance seams."
+    },
+    {
+      "task_id": "task-048",
+      "title": "Define Warp backend conventions and instrumentation strategy",
+      "success_criteria": "Document and implement the initial Warp backend conventions for module organization, dtype or device policy, persistent arrays, capture-safe stepping, and profiling hooks.",
+      "notes": "This task establishes backend guardrails before the heavy kernels land.",
+      "implementation_details": "Use the researched Warp docs and examples to define how kernels are grouped into modules, how arrays and structs represent field buffers and metadata, how stream and graph capture support will be exposed, and how initialization, JIT, kernel, memcpy, and graph timing will be recorded."
+    },
+    {
+      "task_id": "task-049",
+      "title": "Implement vacuum Yee update kernels and the capture-safe step skeleton",
+      "success_criteria": "Document and implement the explicit vacuum E and H update kernels, field staggering rules, and capture-safe step skeleton with clear launch ordering and representative tests.",
+      "notes": "This task isolates the core timestepping spine before material, boundary, and source complications are layered on.",
+      "implementation_details": "Codify field staggering, core curl-update formulas, launch ordering, and the main step skeleton. Implement the initial Warp kernel families for vacuum E and H updates while preserving a capture-friendly sequence."
+    },
+    {
+      "task_id": "task-050",
+      "title": "Implement constitutive and material-update kernel stages",
+      "success_criteria": "Provide the constitutive and material-update kernel stages needed for isotropic, dispersive, and anisotropic materials that Phase 1 claims to support, with clear staging and tests.",
+      "notes": "This task ties the material feature tasks into the runtime in an explicit way.",
+      "implementation_details": "Implement the material-update kernel stages, auxiliary-state updates, and staging contracts that connect compiled coefficients and material state to the main timestep path."
+    },
+    {
+      "task_id": "task-051",
+      "title": "Implement boundary and absorbing-layer kernel stages",
+      "success_criteria": "Provide the explicit runtime or kernel stages needed for conductor boundaries, periodic or Bloch remapping, and absorbing-layer updates claimed by Phase 1.",
+      "notes": "Keep boundary runtime support separate from source and material kernel work.",
+      "implementation_details": "Implement kernel or runtime stages for boundary enforcement, periodic and Bloch remapping, and absorbing-layer updates, and define exactly where those stages sit in the main step sequence."
+    },
+    {
+      "task_id": "task-052",
+      "title": "Implement source-injection kernel stages and source scheduling",
+      "success_criteria": "Provide the explicit kernel or runtime stages for current-source, field-source, beam, plane-wave, and TFSF injection claimed by Phase 1, with clear scheduling semantics and tests.",
+      "notes": "This task keeps source runtime support visible instead of scattering it across API-only tasks.",
+      "implementation_details": "Implement source scheduling metadata, injection staging, and the kernel or runtime paths that apply source contributions in the main step loop."
+    },
+    {
+      "task_id": "task-053",
+      "title": "Implement monitor accumulation, projection, and extraction kernel stages",
+      "success_criteria": "Provide the explicit runtime or kernel stages needed for field, flux, mode, projection, diffraction, and surface-monitor accumulation and extraction claimed by Phase 1.",
+      "notes": "This task makes the monitor runtime spine concrete instead of assuming monitor API support implies executable support.",
+      "implementation_details": "Implement monitor accumulation, extraction, integration, and projection stages, define their scheduling within the step loop, and verify the resulting data products with representative tests."
+    },
+    {
+      "task_id": "task-054",
+      "title": "Implement chunk-aware runtime orchestration and staged halo exchange",
+      "success_criteria": "Create runtime components that partition compiled scenes into chunks, manage stage-specific halo metadata, and provide the halo pack, unpack, and exchange kernel support needed for chunk-aware control flow.",
+      "notes": "Keep this bulk-synchronous and credible first; overlap and advanced scheduling can stay as later extensions.",
+      "implementation_details": "Implement chunk descriptors, placement hooks, interior-versus-boundary update planning, halo metadata per stage, component family, and face, the halo pack or unpack or exchange kernel support they require, and control flow that can support later peer-to-peer or inter-node transports. Preserve scheduler hooks or readiness metadata so future overlapped or systolic policies can be added without changing the chunk contract."
+    },
+    {
+      "task_id": "task-055",
+      "title": "Wire the public API to normalization, IR lowering, and execution entrypoints",
+      "success_criteria": "Users can define nontrivial Tidy3D-style simulations, have them normalized and lowered into the IR, inspect or serialize that IR, and execute them through the same backend entrypoints.",
+      "notes": "This task should prove that execution is driven by the IR rather than the original Python object graph.",
+      "implementation_details": "Implement public API classes or wrappers, normalization passes, schema validation, lowering adapters, and execution wrappers. Include tests showing that warn-and-coerce normalization and unsupported-feature validation behave intentionally."
+    },
+    {
+      "task_id": "task-056",
+      "title": "Implement runtime metrics, benchmark helpers, and execution evidence capture",
+      "success_criteria": "Execution paths emit initialization time, JIT time, steady-state timestep metrics, Gcells-per-second style metrics, and other key runtime evidence in a structured and testable form.",
+      "notes": "This task should align with the Warp instrumentation strategy and the GPU benchmarking paper.",
+      "implementation_details": "Add instrumentation APIs, structured logging, and benchmark helpers that expose compile-time and runtime costs. Record cells per second or Gcells/s, grid shape, total cells, timestep count, precision, material and boundary class, single-versus-multi-GPU context, and separate end-to-end versus steady-state timing."
+    },
+    {
+      "task_id": "task-057",
+      "title": "Implement near-to-far and related postprocessing on top of the monitor infrastructure",
+      "success_criteria": "Provide an initial near-to-far workflow and other key postprocessing routines that build on the DFT monitor foundation and include the postprocessing-kernel support they require, backed by examples or tests.",
+      "notes": "Do not implement near-to-far as a disconnected special case.",
+      "implementation_details": "Use the Meep-informed design to implement monitor-backed near-to-far transforms and related postprocessing paths, including the postprocessing-kernel support they require, and document any dimensional or feature limitations explicitly."
+    },
+    {
+      "task_id": "task-058",
+      "title": "Create canonical validation examples and feature-integration tests",
+      "success_criteria": "Land runnable validation examples and automated tests that exercise the implemented Phase 1 feature families, including vacuum propagation, dielectric slab or waveguide, PML boundaries, symmetry-reduced behavior, source injection, monitor recording, mode-source or mode-monitor workflows, convergence or shutoff behavior, and near-to-far or diffraction-related workflows where supported.",
+      "notes": "These examples should become the evidence base for both feature coverage and later validation work.",
+      "implementation_details": "Create or refine examples and tests that cut across the implemented geometry, material, boundary, source, monitor, mode-solver, logging, convergence, and runtime feature sets, while preserving explicit xfail or reject behavior for deferred features."
+    },
+    {
+      "task_id": "task-059",
+      "title": "Finish README, feature coverage docs, unsupported-feature policy, and Phase 1 readiness summary",
+      "success_criteria": "Document architecture, current feature coverage against the Tidy3D matrix, unsupported-feature behavior, developer workflows, and the evidence that Phase 1 is ready to hand into deeper validation and optimization phases.",
+      "notes": "This task should consolidate the Phase 1 evidence base rather than inventing new architecture.",
+      "implementation_details": "Update the README and docs with architecture, workflows, feature matrix status, examples, benchmark guidance, limitations, and next-phase handoff material."
+    }
+  ]
+}

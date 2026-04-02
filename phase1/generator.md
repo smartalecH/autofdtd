@@ -118,7 +118,7 @@ The generated loop should use its artifacts intentionally:
 All useful references are located relative to this repo (`./autofdtd`):
 
 * `meep` in `../meep`
-  Use this to study domain decomposition, postprocessing such as near-to-far transforms, geometry initialization, and the overall architectural philosophy. Also consult `../papers/meep_paper.pdf`.
+  Use this to study domain decomposition, postprocessing such as near-to-far transforms, geometry initialization, and the overall architectural philosophy. Also consult `papers/meep_paper.pdf`.
 * `Khronos.jl` in `../Khronos.jl`
   A GPU-accelerated Julia FDTD engine that lacks some Meep/Tidy3D features, but may provide useful ideas for handling kernel combinatorial growth.
 * `fdtdx`
