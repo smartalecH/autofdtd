@@ -7,7 +7,7 @@ Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-ins
 ## Operator Policies
 
 - Failure policy: `retry`
-- Permission mode: `workspace-write`
+- Permission mode: `danger-full-access`
 - End-of-list behavior: `stop cleanly`
 - Codex working directory: `..` (repo root relative to `phase1/`)
 

@@ -2,7 +2,7 @@
   "mission_title": "Phase 1 Maxwell Solver Loop",
   "mission_summary": "Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-installable, GPU-first FDTD package whose feature plan is anchored explicitly to the local Tidy3D EM API surface. The loop must produce a Tidy3D-inspired public API, a tagged execution IR, a scene-compilation pipeline, a chunk-based multi-node-ready runtime, Warp kernel conventions, concrete implementations for the highest-priority Tidy3D feature families, validation examples, and documentation without copying protected code or docs from any reference project.",
   "codex_working_dir": "/Users/alechammond/GitHub/autofdtd",
-  "permission_mode": "workspace-write",
+  "permission_mode": "danger-full-access",
   "failure_mode": "retry",
   "exhaustion_mode": "stop cleanly",
   "global_instructions": [

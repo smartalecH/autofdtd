@@ -140,6 +140,95 @@ def append_console(console_path: Path, message: str = "") -> None:
         fh.write(message + "\n")
 
 
+def should_resume_after_prompt_echo(stripped: str) -> bool:
+    return (
+        stripped.startswith("mcp startup:")
+        or stripped.startswith("ERROR:")
+        or stripped.startswith("Warning:")
+        or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))
+        or stripped in {"assistant", "tool", "reasoning", "final"}
+    )
+
+
+def is_top_level_stream_marker(stripped: str) -> bool:
+    return (
+        stripped == "exec"
+        or stripped.startswith("mcp startup:")
+        or stripped.startswith("ERROR:")
+        or stripped.startswith("Warning:")
+        or stripped.startswith("OpenAI Codex")
+        or stripped.startswith("--------")
+        or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))
+        or stripped in {"assistant", "tool", "reasoning", "final"}
+    )
+
+
+def is_file_read_command(stripped: str) -> bool:
+    read_markers = [
+        "pwd",
+        "sed -n",
+        "cat ",
+        "rg --files",
+        "ls -R",
+        "find ",
+    ]
+    return any(marker in stripped for marker in read_markers)
+
+
+def tee_filtered_output(console_path: Path, stdout_fh, raw_line: str, state: dict) -> None:
+    stdout_fh.write(raw_line)
+    stdout_fh.flush()
+
+    stripped = raw_line.rstrip("\n")
+    if state["suppress_prompt_echo"]:
+        if should_resume_after_prompt_echo(stripped):
+            state["suppress_prompt_echo"] = False
+            if not state["prompt_notice_emitted"]:
+                notice = "[stdin prompt echo suppressed]"
+                print(notice, flush=True)
+                with console_path.open("a") as fh:
+                    fh.write(notice + "\n")
+                state["prompt_notice_emitted"] = True
+            if not stripped:
+                return
+        else:
+            return
+
+    if stripped == "user":
+        state["suppress_prompt_echo"] = True
+        return
+
+    if state["suppress_exec_payload"]:
+        if is_top_level_stream_marker(stripped):
+            state["suppress_exec_payload"] = False
+        else:
+            return
+
+    if stripped == "exec":
+        state["awaiting_exec_command"] = True
+        state["last_exec_is_file_read"] = False
+    elif state["awaiting_exec_command"]:
+        state["awaiting_exec_command"] = False
+        state["last_exec_is_file_read"] = is_file_read_command(stripped)
+        if state["last_exec_is_file_read"] and " succeeded in " in stripped:
+            state["last_exec_is_file_read"] = False
+            state["suppress_exec_payload"] = True
+    elif state["last_exec_is_file_read"] and " succeeded in " in stripped:
+        state["last_exec_is_file_read"] = False
+        state["suppress_exec_payload"] = True
+
+    sys.stdout.write(raw_line)
+    sys.stdout.flush()
+    with console_path.open("a") as fh:
+        fh.write(raw_line)
+
+    if state["suppress_exec_payload"]:
+        notice = "[file-read output suppressed]"
+        print(notice, flush=True)
+        with console_path.open("a") as fh:
+            fh.write(notice + "\n")
+
+
 def extract_agent_text(event: dict) -> str | None:
     msg = event.get("msg")
     if isinstance(msg, str) and msg.strip():
@@ -260,8 +349,20 @@ def load_result(result_path: Path, task_id: str) -> dict:
             "follow_up_notes": "",
             "next_action": "human_review",
         }
-    with result_path.open() as fh:
-        return json.load(fh)
+    try:
+        with result_path.open() as fh:
+            return json.load(fh)
+    except json.JSONDecodeError:
+        return {
+            "task_id": task_id,
+            "status": "failed",
+            "summary": "Codex produced an invalid or empty result.json payload.",
+            "key_findings": [],
+            "artifacts": [],
+            "error_summary": "Invalid or empty result.json output.",
+            "follow_up_notes": "",
+            "next_action": "human_review",
+        }
 
 
 def run_codex(
@@ -277,7 +378,6 @@ def run_codex(
         "exec",
         "-C",
         working_dir,
-        "--json",
         "--sandbox",
         permission_mode,
         "--output-schema",
@@ -293,6 +393,7 @@ def run_codex(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
         cwd=bundle_dir,
         env=env,
     )
@@ -301,13 +402,16 @@ def run_codex(
     process.stdin.write(prompt_text)
     process.stdin.close()
 
-    with (run_dir / "codex.jsonl").open("w") as jsonl_fh, (run_dir / "codex.stdout.txt").open("w") as stdout_fh:
+    filter_state = {
+        "suppress_prompt_echo": False,
+        "prompt_notice_emitted": False,
+        "awaiting_exec_command": False,
+        "last_exec_is_file_read": False,
+        "suppress_exec_payload": False,
+    }
+    with (run_dir / "codex.stdout.txt").open("w") as stdout_fh:
         for line in process.stdout:
-            jsonl_fh.write(line)
-            stdout_fh.write(line)
-            rendered = render_stream_line(line)
-            if rendered:
-                append_console(console_path, rendered)
+            tee_filtered_output(console_path, stdout_fh, line, filter_state)
     return process.wait()
 
 
@@ -526,7 +630,6 @@ def main() -> int:
                 "paths": {
                     "run_dir": str(run_dir),
                     "result_json": str(run_dir / "result.json"),
-                    "codex_jsonl": str(run_dir / "codex.jsonl"),
                     "codex_stdout": str(run_dir / "codex.stdout.txt"),
                 },
                 "message": summary,
@@ -561,7 +664,7 @@ def main() -> int:
                     elif path:
                         append_console(console_path, f"- {path}")
         append_console(console_path, f"Next action: {next_action}")
-        append_console(console_path, f"Run artifacts: {run_dir / 'result.json'}, {run_dir / 'codex.jsonl'}, {run_dir / 'codex.stdout.txt'}")
+        append_console(console_path, f"Run artifacts: {run_dir / 'result.json'}, {run_dir / 'codex.stdout.txt'}")
 
         if task.status == "COMPLETED":
             append_console(

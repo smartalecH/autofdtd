@@ -8,6 +8,8 @@
     "summary",
     "key_findings",
     "artifacts",
+    "error_summary",
+    "follow_up_notes",
     "next_action"
   ],
   "properties": {

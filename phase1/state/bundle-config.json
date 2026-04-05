@@ -1,6 +1,6 @@
 {
   "codex_working_dir": "..",
-  "permission_mode": "workspace-write",
+  "permission_mode": "danger-full-access",
   "failure_mode": "retry",
   "exhaustion_mode": "stop cleanly",
   "max_iterations": 100
