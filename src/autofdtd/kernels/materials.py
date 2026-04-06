@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from autofdtd.compiler.materials import (
+    AnisotropicMaterialCoefficients,
     ConstitutiveMode,
     IsotropicMaterialCoefficients,
     PoleResidueMaterialCoefficients,
@@ -31,6 +32,15 @@ class PoleResidueAuxiliaryState:
     @property
     def num_poles(self) -> int:
         return int(self.polarization.shape[0])
+
+
+@dataclass(frozen=True)
+class AnisotropicAuxiliaryState:
+    """Per-axis auxiliary state for diagonal anisotropic updates."""
+
+    xx: PoleResidueAuxiliaryState | None = None
+    yy: PoleResidueAuxiliaryState | None = None
+    zz: PoleResidueAuxiliaryState | None = None
 
 
 def warp_backend_available() -> bool:
@@ -130,6 +140,102 @@ def pole_residue_electric_update(
     )
 
 
+def allocate_anisotropic_state(
+    coefficients: AnisotropicMaterialCoefficients,
+    *,
+    field_shape: tuple[int, ...],
+    dtype: np.dtype[np.complexfloating] = np.complex128,
+) -> AnisotropicAuxiliaryState:
+    """Allocate per-axis auxiliary state for diagonal anisotropic media."""
+
+    states: list[PoleResidueAuxiliaryState | None] = []
+    for component in coefficients.components:
+        if isinstance(component, PoleResidueMaterialCoefficients):
+            states.append(allocate_pole_residue_state(component, field_shape=field_shape, dtype=dtype))
+        else:
+            states.append(None)
+    return AnisotropicAuxiliaryState(xx=states[0], yy=states[1], zz=states[2])
+
+
+def anisotropic_electric_update(
+    electric_field: np.ndarray | list[float] | tuple[float, ...],
+    curl_h: np.ndarray | list[float] | tuple[float, ...],
+    coefficients: AnisotropicMaterialCoefficients,
+    state: AnisotropicAuxiliaryState | None = None,
+    *,
+    dt: float,
+) -> tuple[np.ndarray, AnisotropicAuxiliaryState, np.ndarray]:
+    """Apply a diagonal anisotropic electric update axis-by-axis.
+
+    The input arrays must have a final axis of length 3 corresponding to ``Ex, Ey, Ez``.
+    """
+
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+
+    electric = np.asarray(electric_field, dtype=np.float64)
+    curl = np.asarray(curl_h, dtype=np.float64)
+    if electric.shape != curl.shape:
+        raise ValueError("electric_field and curl_h must have matching shapes")
+    if electric.ndim == 0 or electric.shape[-1] != 3:
+        raise ValueError("anisotropic electric updates require a trailing axis of length 3")
+
+    working_state = state or allocate_anisotropic_state(coefficients, field_shape=electric.shape[:-1])
+    next_components: list[np.ndarray] = []
+    next_states: list[PoleResidueAuxiliaryState | None] = []
+    polarization_components: list[np.ndarray] = []
+
+    for axis, (component_coeffs, axis_state) in enumerate(
+        zip(coefficients.components, (working_state.xx, working_state.yy, working_state.zz), strict=True)
+    ):
+        field_axis = electric[..., axis]
+        curl_axis = curl[..., axis]
+        if isinstance(component_coeffs, PoleResidueMaterialCoefficients):
+            if axis_state is None:
+                raise ValueError("anisotropic auxiliary state is missing a dispersive axis state")
+            updated_axis, next_axis_state, polarization_axis = pole_residue_electric_update(
+                field_axis,
+                curl_axis,
+                component_coeffs,
+                axis_state,
+                dt=dt,
+            )
+        else:
+            updated_axis = electric_constitutive_update(field_axis, curl_axis, component_coeffs)
+            next_axis_state = None
+            polarization_axis = np.zeros_like(field_axis)
+        next_components.append(updated_axis)
+        next_states.append(next_axis_state)
+        polarization_components.append(polarization_axis)
+
+    return (
+        np.stack(next_components, axis=-1),
+        AnisotropicAuxiliaryState(xx=next_states[0], yy=next_states[1], zz=next_states[2]),
+        np.stack(polarization_components, axis=-1),
+    )
+
+
+def anisotropic_magnetic_update(
+    magnetic_field: np.ndarray | list[float] | tuple[float, ...],
+    curl_e: np.ndarray | list[float] | tuple[float, ...],
+    coefficients: AnisotropicMaterialCoefficients,
+) -> np.ndarray:
+    """Apply a diagonal anisotropic magnetic update axis-by-axis."""
+
+    magnetic = np.asarray(magnetic_field, dtype=np.float64)
+    curl = np.asarray(curl_e, dtype=np.float64)
+    if magnetic.shape != curl.shape:
+        raise ValueError("magnetic_field and curl_e must have matching shapes")
+    if magnetic.ndim == 0 or magnetic.shape[-1] != 3:
+        raise ValueError("anisotropic magnetic updates require a trailing axis of length 3")
+
+    updated_components = [
+        magnetic_constitutive_update(magnetic[..., axis], curl[..., axis], component_coeffs)
+        for axis, component_coeffs in enumerate(coefficients.components)
+    ]
+    return np.stack(updated_components, axis=-1)
+
+
 def constitutive_kernel_metadata() -> dict[str, Any]:
     """Expose the current constitutive backend choices for diagnostics."""
 
@@ -140,8 +246,11 @@ def constitutive_kernel_metadata() -> dict[str, Any]:
             "electric_constitutive_update",
             "magnetic_constitutive_update",
             "pole_residue_electric_update",
+            "anisotropic_electric_update",
+            "anisotropic_magnetic_update",
         ),
         "module_contents_stable": True,
-        "auxiliary_layouts": ("complex_polarization_per_pole",),
+        "auxiliary_layouts": ("complex_polarization_per_pole", "per_axis_shared_scalar_layout"),
         "dispersive_medium_paths": ("PoleResidue", "Sellmeier", "Lorentz", "Drude", "Debye"),
+        "anisotropic_medium_paths": ("AnisotropicMedium",),
     }

@@ -213,7 +213,7 @@ class Simulation(Scene):
     boundary_spec: object | None = None
     grid_spec: object | None = None
     symmetry: tuple[int, int, int] = (0, 0, 0)
-    shutoff: float | None = None
+    shutoff: float | None = 1.0e-5
     courant: float = 0.99
     subpixel: object | None = None
     normalize_index: int | None = None
@@ -225,6 +225,27 @@ class Simulation(Scene):
     def resolved_grid(self) -> ResolvedGrid | None:
         """Resolve the simulation grid_spec against the simulation domain."""
         return resolve_grid_spec(self.grid_spec, center=self.center, size=self.size)
+
+    def scaled_courant(self) -> float:
+        """Return the effective Courant factor after subpixel-policy scaling."""
+
+        from autofdtd.compiler.runtime import effective_courant
+
+        return effective_courant(self)
+
+    def time_step_size(self) -> float:
+        """Return the estimated Yee timestep implied by the current grid and Courant factor."""
+
+        from autofdtd.compiler.runtime import estimate_time_step
+
+        return estimate_time_step(self)
+
+    def num_time_steps(self) -> int:
+        """Return the Tidy3D-style number of time points in the simulation tmesh."""
+
+        from autofdtd.compiler.runtime import estimate_num_time_steps
+
+        return estimate_num_time_steps(self)
 
     @field_validator("center")
     @classmethod

@@ -9,10 +9,14 @@ from pydantic import BaseModel
 from autofdtd.api import (
     AutoGrid,
     Box,
+    BroadbandPulse,
     ClipOperation,
+    ContinuousWave,
     CustomGrid,
     CustomGridBoundaries,
+    CustomSourceTime,
     Cylinder,
+    GaussianPulse,
     GeometryArray,
     GeometryGroup,
     GeometryTransform,
@@ -35,18 +39,25 @@ from autofdtd.ir import (
     IR_SCHEMA_VERSION,
     AutoGridIR,
     BoxIR,
+    BoundarySpecIR,
+    BroadbandPulseIR,
     ClipOperationIR,
+    ContinuousWaveIR,
+    CustomSourceTimeIR,
     CustomGridBoundariesIR,
     CustomGridIR,
     CylinderIR,
     ExecutionPackageIR,
+    GaussianPulseIR,
     GeometryGroupIR,
     GridRefinementIR,
     GridSpecIR,
     LayerRefinementSpecIR,
+    PMLIR,
     PolarizedAveragingIR,
     PolySlabIR,
     ResolvedGridIR,
+    RuntimeControlsIR,
     SphereIR,
     StaircasingIR,
     SubpixelSpecIR,
@@ -54,6 +65,7 @@ from autofdtd.ir import (
     UniformGridIR,
     execution_package_json_schema,
     simulation_to_ir,
+    source_time_to_ir,
 )
 
 
@@ -61,6 +73,7 @@ class NamedStub(BaseModel):
     type: str
     name: str | None = None
     axis: str | None = None
+    source_time: object | None = None
 
 
 def build_simulation() -> Simulation:
@@ -131,7 +144,14 @@ def build_simulation() -> Simulation:
                 name="post_array",
             ),
         ),
-        sources=(NamedStub(type="ModeSource", name="src", axis="+"),),
+        sources=(
+            NamedStub(
+                type="ModeSource",
+                name="src",
+                axis="+",
+                source_time=GaussianPulse(freq0=2.0e14, fwidth=4.0e13, amplitude=0.5),
+            ),
+        ),
         monitors=(NamedStub(type="FieldMonitor", name="fields"),),
         boundary_spec={"type": "BoundarySpec", "x": {"type": "PML"}},
         grid_spec=GridSpec(
@@ -179,7 +199,10 @@ def test_simulation_to_ir_preserves_order_and_family_tags() -> None:
     assert simulation_ir.scene.structures[5].geometry.component_type == "GeometryGroup"
     assert simulation_ir.scene.background_medium.family == "medium"
     assert simulation_ir.sources[0].family == "source"
+    assert simulation_ir.sources[0].payload["source_time"]["type"] == "GaussianPulseIR"
     assert simulation_ir.monitors[0].component_type == "FieldMonitor"
+    assert isinstance(simulation_ir.boundary_spec, BoundarySpecIR)
+    assert isinstance(simulation_ir.boundary_spec.x.minus, PMLIR)
     assert isinstance(simulation_ir.grid_spec, GridSpecIR)
     assert isinstance(simulation_ir.grid_spec.grid_x, UniformGridIR)
     assert isinstance(simulation_ir.grid_spec.grid_y, CustomGridIR)
@@ -189,6 +212,10 @@ def test_simulation_to_ir_preserves_order_and_family_tags() -> None:
     assert simulation_ir.subpixel.averaging_targets == ("dielectric",)
     assert isinstance(simulation_ir.subpixel.dielectric, PolarizedAveragingIR)
     assert isinstance(simulation_ir.subpixel.pec, StaircasingIR)
+    assert isinstance(simulation_ir.runtime_controls, RuntimeControlsIR)
+    assert simulation_ir.runtime_controls.primary_stop_reason == "run_time"
+    assert simulation_ir.runtime_controls.convergence_policy == "integrated_electric_field"
+    assert simulation_ir.runtime_controls.num_time_steps == simulation_ir.runtime_controls.max_step_index + 1
 
 
 def test_execution_package_bundle_writes_manifest_and_simulation_json(tmp_path) -> None:
@@ -230,6 +257,33 @@ def test_geometry_ir_carries_bounds_and_transform_metadata() -> None:
     assert polyslab_geometry.bounds_min == (-4.0, -0.5, -0.11)
     assert polyslab_geometry.bounds_max == (4.0, 0.5, 0.11)
     assert polyslab_geometry.transform.axes[2] == (1.0, 0.0, 0.0)
+
+
+def test_source_time_to_ir_lowers_common_waveforms() -> None:
+    pulse_ir = source_time_to_ir(
+        GaussianPulse(freq0=2.0e14, fwidth=4.0e13, amplitude=0.5, remove_dc_component=False)
+    )
+    cw_ir = source_time_to_ir(ContinuousWave(freq0=2.0e14, fwidth=4.0e13, amplitude=0.5))
+    broadband_ir = source_time_to_ir(
+        BroadbandPulse(freq_range=(1.8e14, 2.2e14), minimum_amplitude=0.25, amplitude=0.5)
+    )
+    custom_ir = source_time_to_ir(
+        CustomSourceTime.from_values(
+            freq0=2.0e14,
+            fwidth=4.0e13,
+            values=(0.0 + 0.0j, 1.0 + 0.0j, 0.0 + 0.0j),
+            dt=1.0e-15,
+        )
+    )
+
+    assert isinstance(pulse_ir, GaussianPulseIR)
+    assert pulse_ir.remove_dc_component is False
+    assert isinstance(cw_ir, ContinuousWaveIR)
+    assert cw_ir.frequency_range == (4.0e13, 3.6e14)
+    assert isinstance(broadband_ir, BroadbandPulseIR)
+    assert broadband_ir.minimum_amplitude == pytest.approx(0.25)
+    assert isinstance(custom_ir, CustomSourceTimeIR)
+    assert custom_ir.sample_count == 3
 
 
 def test_wrapper_geometry_ir_preserves_nested_types_and_bounds() -> None:

@@ -15,6 +15,7 @@ from autofdtd.api import (
     GeometryArray,
     GeometryGroup,
     GeometryTransform,
+    GridSpec,
     PolarizedAveraging,
     PolySlab,
     Scene,
@@ -26,7 +27,9 @@ from autofdtd.api import (
     StructurePriorityMode,
     SubpixelSpec,
     Transformed,
+    UniformGrid,
 )
+from autofdtd.compiler import C_0
 from autofdtd.core import json_ready
 
 
@@ -151,6 +154,35 @@ def test_scene_conductor_mode_assigns_default_medium_priorities() -> None:
     )
 
     assert [item.name for item in scene.structures_in_resolution_order()] == ["dielectric", "pec"]
+
+
+def test_simulation_reports_effective_timestep_and_num_time_steps() -> None:
+    simulation = Simulation(
+        center=(0.0, 0.0, 0.0),
+        size=(4.0e-7, 4.0e-7, 4.0e-7),
+        run_time=2.5e-15,
+        grid_spec=GridSpec(
+            grid_x=UniformGrid(dl=1.0e-7),
+            grid_y=UniformGrid(dl=2.0e-7),
+            grid_z=UniformGrid(dl=4.0e-7),
+        ),
+        subpixel=SubpixelSpec(
+            dielectric=PolarizedAveraging(),
+            metal=Staircasing(),
+            pec=Staircasing(),
+            pmc=Staircasing(),
+            lossy_metal=Staircasing(),
+        ),
+    )
+
+    expected_dt = 0.99 / (
+        C_0 * math.sqrt((1.0 / (1.0e-7**2)) + (1.0 / (2.0e-7**2)) + (1.0 / (4.0e-7**2)))
+    )
+
+    assert simulation.shutoff == pytest.approx(1.0e-5)
+    assert simulation.scaled_courant() == pytest.approx(0.99)
+    assert simulation.time_step_size() == pytest.approx(expected_dt)
+    assert simulation.num_time_steps() == math.ceil(simulation.run_time / expected_dt) + 1
 
 
 def test_polyslab_exposes_bounds_transform_translation_and_containment() -> None:
@@ -490,7 +522,8 @@ def test_zero_dim_absorbing_boundary_is_coerced_to_periodic_with_warning() -> No
             boundary_spec={"type": "BoundarySpec", "x": {"type": "PML"}},
         )
 
-    assert simulation.boundary_spec["x"]["type"] == "Periodic"
+    assert simulation.boundary_spec["x"]["minus"]["type"] == "Periodic"
+    assert simulation.boundary_spec["x"]["plus"]["type"] == "Periodic"
 
 
 def test_simulation_grid_spec_is_normalized_and_resolved() -> None:

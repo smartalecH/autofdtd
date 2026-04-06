@@ -10,8 +10,28 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from autofdtd.boundaries import (
+    ABCBoundary,
+    Absorber,
+    AbsorberParams,
+    BlochBoundary,
+    BroadbandModeABCSpec,
+    Boundary,
+    BoundarySpec,
+    ModeABCBoundary,
+    PML,
+    PMLParams,
+    PECBoundary,
+    PMCBoundary,
+    Periodic,
+    StablePML,
+    boundary_edge_model_from_value,
+    boundary_model_from_value,
+    boundary_spec_model_from_value,
+)
 from autofdtd.core.containers import Scene, Simulation, Structure, StructurePriorityMode
 from autofdtd.core.models import TaggedModel, json_ready
+from autofdtd.compiler.runtime import compile_runtime_controls
 from autofdtd.geometry import (
     Box,
     ClipOperation,
@@ -40,6 +60,7 @@ from autofdtd.grid import (
     subpixel_model_from_value,
 )
 from autofdtd.materials import (
+    AnisotropicMedium,
     Debye,
     Drude,
     Lorentz,
@@ -49,6 +70,14 @@ from autofdtd.materials import (
     PoleResidue,
     Sellmeier,
     medium_model_from_value,
+)
+from autofdtd.sources import (
+    BroadbandPulse,
+    ContinuousWave,
+    CustomSourceTime,
+    GaussianPulse,
+    UniformCurrentSource,
+    source_time_model_from_value,
 )
 from autofdtd.version import __version__
 
@@ -115,6 +144,103 @@ class GeometryTransformIR(IRModel):
     type: Literal["GeometryTransformIR"] = "GeometryTransformIR"
     origin: tuple[float, float, float]
     axes: tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]
+
+
+class GaussianPulseIR(IRModel):
+    """Typed execution IR for a Gaussian source-time profile."""
+
+    type: Literal["GaussianPulseIR"] = "GaussianPulseIR"
+    component_type: Literal["GaussianPulse"] = "GaussianPulse"
+    amplitude: float
+    phase: float
+    freq0: float
+    fwidth: float
+    offset: float
+    remove_dc_component: bool
+    twidth: float
+    offset_time: float
+    peak_time: float
+    peak_frequency: float
+    end_time: float
+    frequency_range: tuple[float, float]
+
+
+class ContinuousWaveIR(IRModel):
+    """Typed execution IR for a continuous-wave source-time profile."""
+
+    type: Literal["ContinuousWaveIR"] = "ContinuousWaveIR"
+    component_type: Literal["ContinuousWave"] = "ContinuousWave"
+    amplitude: float
+    phase: float
+    freq0: float
+    fwidth: float
+    offset: float
+    twidth: float
+    offset_time: float
+    end_time: None = None
+    frequency_range: tuple[float, float]
+
+
+class BroadbandPulseIR(IRModel):
+    """Typed execution IR for the supported broadband-pulse subset."""
+
+    type: Literal["BroadbandPulseIR"] = "BroadbandPulseIR"
+    component_type: Literal["BroadbandPulse"] = "BroadbandPulse"
+    amplitude: float
+    phase: float
+    freq_range: tuple[float, float]
+    minimum_amplitude: float
+    offset: float
+    freq0: float
+    bandwidth: float
+    fwidth: float
+    twidth: float
+    offset_time: float
+    peak_time: float
+    end_time: float
+    frequency_range: tuple[float, float]
+
+
+class CustomSourceTimeIR(IRModel):
+    """Typed execution IR for interpolated custom source-time envelopes."""
+
+    type: Literal["CustomSourceTimeIR"] = "CustomSourceTimeIR"
+    component_type: Literal["CustomSourceTime"] = "CustomSourceTime"
+    amplitude: float
+    phase: float
+    freq0: float
+    fwidth: float
+    offset: float
+    twidth: float
+    offset_time: float
+    time_samples: tuple[float, ...]
+    envelope_values: tuple[tuple[float, float], ...]
+    sample_count: int
+    end_time: float | None
+    frequency_range: tuple[float, float]
+
+
+SourceTimeIR = GaussianPulseIR | ContinuousWaveIR | BroadbandPulseIR | CustomSourceTimeIR
+
+
+class UniformCurrentSourceIR(IRModel):
+    """Typed execution IR for a uniform current source."""
+
+    type: Literal["UniformCurrentSourceIR"] = "UniformCurrentSourceIR"
+    component_type: Literal["UniformCurrentSource"] = "UniformCurrentSource"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    polarization: Literal["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]
+    field_kind: Literal["electric", "magnetic"]
+    component_axis: Literal[0, 1, 2]
+    placement_kind: Literal["point", "line", "sheet", "volume"]
+    zero_size_axes: tuple[int, ...]
+    interpolate: bool
+    confine_to_bounds: bool
+    current_amplitude_definition: Literal["density", "total"]
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
 
 
 class BoxIR(IRModel):
@@ -355,6 +481,190 @@ class SubpixelSpecIR(IRModel):
     courant_ratio: float
 
 
+class PeriodicIR(IRModel):
+    """Typed execution IR for a periodic boundary edge."""
+
+    type: Literal["PeriodicIR"] = "PeriodicIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["Periodic"] = "Periodic"
+    name: str | None = None
+
+
+class BlochBoundaryIR(IRModel):
+    """Typed execution IR for a Bloch boundary edge."""
+
+    type: Literal["BlochBoundaryIR"] = "BlochBoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["BlochBoundary"] = "BlochBoundary"
+    name: str | None = None
+    bloch_vec: float
+    phase_real: float
+    phase_imag: float
+
+
+class PECBoundaryIR(IRModel):
+    """Typed execution IR for a PEC boundary edge."""
+
+    type: Literal["PECBoundaryIR"] = "PECBoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["PECBoundary"] = "PECBoundary"
+    name: str | None = None
+
+
+class PMCBoundaryIR(IRModel):
+    """Typed execution IR for a PMC boundary edge."""
+
+    type: Literal["PMCBoundaryIR"] = "PMCBoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["PMCBoundary"] = "PMCBoundary"
+    name: str | None = None
+
+
+class ABCBoundaryIR(IRModel):
+    """Typed execution IR for a first-order absorbing boundary edge."""
+
+    type: Literal["ABCBoundaryIR"] = "ABCBoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["ABCBoundary"] = "ABCBoundary"
+    name: str | None = None
+    permittivity: float | None = None
+    conductivity: float | None = None
+    requires_material_inference: bool = False
+
+
+class PMLParamsIR(IRModel):
+    """Typed execution IR for baseline PML profile parameters."""
+
+    type: Literal["PMLParamsIR"] = "PMLParamsIR"
+    sigma_order: int
+    sigma_min: float
+    sigma_max: float
+    kappa_order: int
+    kappa_min: float
+    kappa_max: float
+    alpha_order: int
+    alpha_min: float
+    alpha_max: float
+
+
+class PMLIR(IRModel):
+    """Typed execution IR for a baseline PML boundary edge."""
+
+    type: Literal["PMLIR"] = "PMLIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["PML"] = "PML"
+    name: str | None = None
+    num_layers: int
+    parameters: PMLParamsIR
+    extrude_structures: bool = True
+
+
+class StablePMLIR(IRModel):
+    """Typed execution IR for a stable-PML boundary edge."""
+
+    type: Literal["StablePMLIR"] = "StablePMLIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["StablePML"] = "StablePML"
+    name: str | None = None
+    num_layers: int
+    parameters: PMLParamsIR
+    extrude_structures: bool = True
+
+
+class AbsorberParamsIR(IRModel):
+    """Typed execution IR for adiabatic absorber parameters."""
+
+    type: Literal["AbsorberParamsIR"] = "AbsorberParamsIR"
+    sigma_order: int
+    sigma_min: float
+    sigma_max: float
+
+
+class AbsorberIR(IRModel):
+    """Typed execution IR for an adiabatic absorber edge."""
+
+    type: Literal["AbsorberIR"] = "AbsorberIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["Absorber"] = "Absorber"
+    name: str | None = None
+    num_layers: int
+    parameters: AbsorberParamsIR
+    extrude_structures: bool = False
+
+
+class ModeABCBoundaryIR(IRModel):
+    """Typed execution IR for the deferred mode-absorbing boundary surface."""
+
+    type: Literal["ModeABCBoundaryIR"] = "ModeABCBoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["ModeABCBoundary"] = "ModeABCBoundary"
+    name: str | None = None
+    mode_spec: dict[str, Any]
+    mode_index: int
+    freq_spec: float | dict[str, Any] | None = None
+    plane: BoxIR
+    phase1_policy: str
+
+
+class SymmetryAxisIR(IRModel):
+    """Typed execution IR for one mirror-symmetry axis."""
+
+    type: Literal["SymmetryAxisIR"] = "SymmetryAxisIR"
+    axis: Literal["x", "y", "z"]
+    symmetry: Literal[-1, 1]
+    electric_signs: tuple[int, int, int]
+    magnetic_signs: tuple[int, int, int]
+
+
+BoundaryEdgeIR = (
+    PeriodicIR
+    | BlochBoundaryIR
+    | PECBoundaryIR
+    | PMCBoundaryIR
+    | ABCBoundaryIR
+    | PMLIR
+    | StablePMLIR
+    | AbsorberIR
+    | ModeABCBoundaryIR
+    | ComponentIR
+)
+
+
+class BoundaryIR(IRModel):
+    """Typed execution IR for one axis boundary pair."""
+
+    type: Literal["BoundaryIR"] = "BoundaryIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["Boundary"] = "Boundary"
+    plus: BoundaryEdgeIR
+    minus: BoundaryEdgeIR
+
+
+class BoundarySpecIR(IRModel):
+    """Typed execution IR for the Phase 1 boundary container."""
+
+    type: Literal["BoundarySpecIR"] = "BoundarySpecIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["BoundarySpec"] = "BoundarySpec"
+    x: BoundaryIR
+    y: BoundaryIR
+    z: BoundaryIR
+    requires_complex_fields: bool = False
+    periodic_axes: tuple[str, ...] = ()
+    bloch_axes: tuple[str, ...] = ()
+    reflective_axes: tuple[str, ...] = ()
+    abc_axes: tuple[str, ...] = ()
+    abc_faces: tuple[str, ...] = ()
+    pml_axes: tuple[str, ...] = ()
+    pml_faces: tuple[str, ...] = ()
+    stable_pml_axes: tuple[str, ...] = ()
+    stable_pml_faces: tuple[str, ...] = ()
+    absorber_axes: tuple[str, ...] = ()
+    absorber_faces: tuple[str, ...] = ()
+    active_symmetry_axes: tuple[str, ...] = ()
+    symmetry_axes: tuple[SymmetryAxisIR, ...] = ()
+
+
 class MediumIR(IRModel):
     """Typed execution IR for a homogeneous isotropic dielectric or conductor."""
 
@@ -440,6 +750,45 @@ class DebyeIR(IRModel):
     coeffs: tuple[tuple[float, float], ...]
 
 
+class AnisotropicMediumIR(IRModel):
+    """Typed execution IR for a diagonal anisotropic medium."""
+
+    type: Literal["AnisotropicMediumIR"] = "AnisotropicMediumIR"
+    family: Literal["medium"] = "medium"
+    component_type: Literal["AnisotropicMedium"] = "AnisotropicMedium"
+    name: str | None = None
+    xx: (
+        MediumIR
+        | PECMediumIR
+        | PMCMediumIR
+        | PoleResidueIR
+        | SellmeierIR
+        | LorentzIR
+        | DrudeIR
+        | DebyeIR
+    )
+    yy: (
+        MediumIR
+        | PECMediumIR
+        | PMCMediumIR
+        | PoleResidueIR
+        | SellmeierIR
+        | LorentzIR
+        | DrudeIR
+        | DebyeIR
+    )
+    zz: (
+        MediumIR
+        | PECMediumIR
+        | PMCMediumIR
+        | PoleResidueIR
+        | SellmeierIR
+        | LorentzIR
+        | DrudeIR
+        | DebyeIR
+    )
+
+
 MediumComponentIR = (
     MediumIR
     | PECMediumIR
@@ -449,6 +798,7 @@ MediumComponentIR = (
     | LorentzIR
     | DrudeIR
     | DebyeIR
+    | AnisotropicMediumIR
     | ComponentIR
 )
 
@@ -478,6 +828,9 @@ class SceneIR(IRModel):
     structures: tuple[StructureIR, ...] = ()
 
 
+SourceComponentIR = ComponentIR | UniformCurrentSourceIR
+
+
 class SimulationIR(IRModel):
     """Top-level execution IR for a Phase 1 simulation."""
 
@@ -488,14 +841,33 @@ class SimulationIR(IRModel):
     size: tuple[float, float, float]
     run_time: float
     courant: float
+    normalize_index: int | None = None
     symmetry: tuple[int, int, int]
     shutoff: float | None = None
     scene: SceneIR
-    sources: tuple[ComponentIR, ...] = ()
+    sources: tuple[SourceComponentIR, ...] = ()
     monitors: tuple[ComponentIR, ...] = ()
-    boundary_spec: ComponentIR | None = None
+    boundary_spec: BoundarySpecIR | ComponentIR | None = None
     grid_spec: GridSpecIR | ComponentIR | None = None
     subpixel: SubpixelSpecIR | ComponentIR | None = None
+    runtime_controls: RuntimeControlsIR | None = None
+
+
+class RuntimeControlsIR(IRModel):
+    """Typed execution IR for compiled timestep-count and early-stop behavior."""
+
+    type: Literal["RuntimeControlsIR"] = "RuntimeControlsIR"
+    dt: float | None = None
+    num_time_steps: int | None = None
+    max_step_index: int | None = None
+    scaled_courant: float
+    cfl_spacings: tuple[float, ...] = ()
+    primary_stop_reason: Literal["run_time", "step_count"]
+    convergence_policy: Literal["none", "integrated_electric_field"]
+    shutoff: float | None = None
+    shutoff_check_interval: int | None = None
+    normalize_index: int | None = None
+    user_step_limit: int | None = None
 
 
 class ArtifactIR(IRModel):
@@ -581,9 +953,19 @@ def _component_payload(value: object) -> dict[str, Any]:
     return {str(key): json_ready(item) for key, item in raw.items()}
 
 
-def component_to_ir(value: object, *, family: str) -> ComponentIR:
+def component_to_ir(value: object, *, family: str) -> ComponentIR | UniformCurrentSourceIR:
     """Normalize a tagged public component into a transport-safe IR envelope."""
+    if family == ComponentFamily.SOURCE and isinstance(value, UniformCurrentSource):
+        return source_to_ir(value)
+    if (
+        family == ComponentFamily.SOURCE
+        and isinstance(value, Mapping)
+        and str(value.get("type")) == "UniformCurrentSource"
+    ):
+        return source_to_ir(UniformCurrentSource.model_validate(value))
     raw = _component_payload(value)
+    if family == ComponentFamily.SOURCE and "source_time" in raw:
+        raw["source_time"] = json_ready(source_time_to_ir(raw["source_time"]))
     component_type = str(raw.pop("type", value.__class__.__name__))
     name = raw.get("name")
     return ComponentIR(
@@ -592,6 +974,96 @@ def component_to_ir(value: object, *, family: str) -> ComponentIR:
         name=str(name) if isinstance(name, str) else None,
         payload=raw,
     )
+
+
+def source_to_ir(value: object) -> SourceComponentIR:
+    """Lower supported Phase 1 source models into typed execution IR."""
+
+    source = (
+        value
+        if isinstance(value, UniformCurrentSource)
+        else UniformCurrentSource.model_validate(value)
+    )
+    return UniformCurrentSourceIR(
+        center=source.center,
+        size=source.size,
+        polarization=source.polarization,
+        field_kind=source.field_kind,
+        component_axis=source.component_axis,
+        placement_kind=source.placement_kind,
+        zero_size_axes=source.zero_size_axes,
+        interpolate=source.interpolate,
+        confine_to_bounds=source.confine_to_bounds,
+        current_amplitude_definition=source.current_amplitude_definition,
+        source_time=source_time_to_ir(source.source_time),
+        name=source.name,
+        support_bounds=source.support_bounds,
+    )
+
+
+def source_time_to_ir(value: object) -> SourceTimeIR:
+    """Lower a supported Phase 1 source-time profile into typed execution IR."""
+
+    source_time = source_time_model_from_value(value)
+    if isinstance(source_time, GaussianPulse):
+        return GaussianPulseIR(
+            amplitude=source_time.amplitude,
+            phase=source_time.phase,
+            freq0=source_time.freq0,
+            fwidth=source_time.fwidth,
+            offset=source_time.offset,
+            remove_dc_component=source_time.remove_dc_component,
+            twidth=source_time.twidth,
+            offset_time=source_time.offset_time,
+            peak_time=source_time.peak_time,
+            peak_frequency=source_time.peak_frequency,
+            end_time=source_time.end_time(),
+            frequency_range=source_time.frequency_range(),
+        )
+    if isinstance(source_time, ContinuousWave):
+        return ContinuousWaveIR(
+            amplitude=source_time.amplitude,
+            phase=source_time.phase,
+            freq0=source_time.freq0,
+            fwidth=source_time.fwidth,
+            offset=source_time.offset,
+            twidth=source_time.twidth,
+            offset_time=source_time.offset_time,
+            end_time=source_time.end_time(),
+            frequency_range=source_time.frequency_range(),
+        )
+    if isinstance(source_time, BroadbandPulse):
+        return BroadbandPulseIR(
+            amplitude=source_time.amplitude,
+            phase=source_time.phase,
+            freq_range=source_time.freq_range,
+            minimum_amplitude=source_time.minimum_amplitude,
+            offset=source_time.offset,
+            freq0=source_time.freq0,
+            bandwidth=source_time.bandwidth,
+            fwidth=source_time.fwidth,
+            twidth=source_time.twidth,
+            offset_time=source_time.offset_time,
+            peak_time=source_time.peak_time,
+            end_time=source_time.end_time(),
+            frequency_range=source_time.frequency_range(),
+        )
+    if isinstance(source_time, CustomSourceTime):
+        return CustomSourceTimeIR(
+            amplitude=source_time.amplitude,
+            phase=source_time.phase,
+            freq0=source_time.freq0,
+            fwidth=source_time.fwidth,
+            offset=source_time.offset,
+            twidth=source_time.twidth,
+            offset_time=source_time.offset_time,
+            time_samples=source_time.time_samples,
+            envelope_values=source_time.envelope_values,
+            sample_count=len(source_time.time_samples),
+            end_time=source_time.end_time(),
+            frequency_range=source_time.frequency_range(),
+        )
+    raise TypeError(f"unsupported source-time type {type(source_time)!r}")
 
 
 def geometry_transform_to_ir(value: GeometryTransform) -> GeometryTransformIR:
@@ -716,11 +1188,30 @@ def medium_to_ir(value: object) -> MediumComponentIR:
     """Lower supported isotropic media into typed execution IR."""
 
     medium: (
-        Medium | PECMedium | PMCMedium | PoleResidue | Sellmeier | Lorentz | Drude | Debye | None
+        Medium
+        | PECMedium
+        | PMCMedium
+        | PoleResidue
+        | Sellmeier
+        | Lorentz
+        | Drude
+        | Debye
+        | AnisotropicMedium
+        | None
     ) = None
     if isinstance(
         value,
-        (Medium, PECMedium, PMCMedium, PoleResidue, Sellmeier, Lorentz, Drude, Debye),
+        (
+            Medium,
+            PECMedium,
+            PMCMedium,
+            PoleResidue,
+            Sellmeier,
+            Lorentz,
+            Drude,
+            Debye,
+            AnisotropicMedium,
+        ),
     ):
         medium = value
     elif (
@@ -735,6 +1226,7 @@ def medium_to_ir(value: object) -> MediumComponentIR:
             "Lorentz",
             "Drude",
             "Debye",
+            "AnisotropicMedium",
         }
     ):
         medium = medium_model_from_value(value)
@@ -761,7 +1253,315 @@ def medium_to_ir(value: object) -> MediumComponentIR:
         return DrudeIR(name=medium.name, eps_inf=medium.eps_inf, coeffs=medium.coeffs)
     if isinstance(medium, Debye):
         return DebyeIR(name=medium.name, eps_inf=medium.eps_inf, coeffs=medium.coeffs)
+    if isinstance(medium, AnisotropicMedium):
+        return AnisotropicMediumIR(
+            name=medium.name,
+            xx=medium_to_ir(medium.xx),
+            yy=medium_to_ir(medium.yy),
+            zz=medium_to_ir(medium.zz),
+        )
     return component_to_ir(value, family=ComponentFamily.MEDIUM)
+
+
+def boundary_edge_to_ir(value: object) -> BoundaryEdgeIR:
+    """Lower a supported boundary edge into typed execution IR."""
+
+    edge: (
+        Periodic
+        | BlochBoundary
+        | PECBoundary
+        | PMCBoundary
+        | ABCBoundary
+        | PML
+        | StablePML
+        | Absorber
+        | ModeABCBoundary
+        | None
+    ) = None
+    if isinstance(
+        value,
+        (
+            Periodic,
+            BlochBoundary,
+            PECBoundary,
+            PMCBoundary,
+            ABCBoundary,
+            PML,
+            StablePML,
+            Absorber,
+            ModeABCBoundary,
+        ),
+    ):
+        edge = value
+    elif isinstance(value, Mapping) and str(value.get("type")) in {
+        "Periodic",
+        "BlochBoundary",
+        "PECBoundary",
+        "PMCBoundary",
+        "ABCBoundary",
+        "PML",
+        "StablePML",
+        "Absorber",
+        "ModeABCBoundary",
+    }:
+        edge = boundary_edge_model_from_value(value)
+
+    if isinstance(edge, Periodic):
+        return PeriodicIR(name=edge.name)
+    if isinstance(edge, BlochBoundary):
+        return BlochBoundaryIR(
+            name=edge.name,
+            bloch_vec=edge.bloch_vec,
+            phase_real=float(edge.bloch_phase.real),
+            phase_imag=float(edge.bloch_phase.imag),
+        )
+    if isinstance(edge, PECBoundary):
+        return PECBoundaryIR(name=edge.name)
+    if isinstance(edge, PMCBoundary):
+        return PMCBoundaryIR(name=edge.name)
+    if isinstance(edge, ABCBoundary):
+        return ABCBoundaryIR(
+            name=edge.name,
+            permittivity=edge.permittivity,
+            conductivity=edge.conductivity,
+            requires_material_inference=edge.permittivity is None,
+        )
+    if isinstance(edge, PML):
+        params = (
+            edge.parameters
+            if isinstance(edge.parameters, PMLParams)
+            else PMLParams.model_validate(edge.parameters)
+        )
+        return PMLIR(
+            name=edge.name,
+            num_layers=edge.num_layers,
+            parameters=PMLParamsIR(
+                sigma_order=params.sigma_order,
+                sigma_min=params.sigma_min,
+                sigma_max=params.sigma_max,
+                kappa_order=params.kappa_order,
+                kappa_min=params.kappa_min,
+                kappa_max=params.kappa_max,
+                alpha_order=params.alpha_order,
+                alpha_min=params.alpha_min,
+                alpha_max=params.alpha_max,
+            ),
+            extrude_structures=edge.extrude_structures,
+        )
+    if isinstance(edge, StablePML):
+        params = (
+            edge.parameters
+            if isinstance(edge.parameters, PMLParams)
+            else PMLParams.model_validate(edge.parameters)
+        )
+        return StablePMLIR(
+            name=edge.name,
+            num_layers=edge.num_layers,
+            parameters=PMLParamsIR(
+                sigma_order=params.sigma_order,
+                sigma_min=params.sigma_min,
+                sigma_max=params.sigma_max,
+                kappa_order=params.kappa_order,
+                kappa_min=params.kappa_min,
+                kappa_max=params.kappa_max,
+                alpha_order=params.alpha_order,
+                alpha_min=params.alpha_min,
+                alpha_max=params.alpha_max,
+            ),
+            extrude_structures=edge.extrude_structures,
+        )
+    if isinstance(edge, Absorber):
+        params = (
+            edge.parameters
+            if isinstance(edge.parameters, AbsorberParams)
+            else AbsorberParams.model_validate(edge.parameters)
+        )
+        return AbsorberIR(
+            name=edge.name,
+            num_layers=edge.num_layers,
+            parameters=AbsorberParamsIR(
+                sigma_order=params.sigma_order,
+                sigma_min=params.sigma_min,
+                sigma_max=params.sigma_max,
+            ),
+            extrude_structures=edge.extrude_structures,
+        )
+    if isinstance(edge, ModeABCBoundary):
+        freq_payload: float | dict[str, Any] | None
+        if isinstance(edge.freq_spec, BroadbandModeABCSpec):
+            freq_payload = edge.freq_spec.model_dump(mode="python", exclude_none=True)
+        else:
+            freq_payload = edge.freq_spec
+        return ModeABCBoundaryIR(
+            name=edge.name,
+            mode_spec=dict(edge.mode_spec),
+            mode_index=edge.mode_index,
+            freq_spec=freq_payload,
+            plane=geometry_to_ir(edge.plane),
+            phase1_policy=edge.phase1_policy,
+        )
+    return component_to_ir(value, family=ComponentFamily.BOUNDARY)
+
+
+def boundary_to_ir(value: object) -> BoundaryIR | ComponentIR:
+    """Lower a supported axis boundary pair into typed execution IR."""
+
+    boundary: Boundary | None = None
+    if isinstance(value, Boundary):
+        boundary = value
+    elif isinstance(value, Mapping) and str(value.get("type")) in {
+        "Boundary",
+        "Periodic",
+        "BlochBoundary",
+        "PECBoundary",
+        "PMCBoundary",
+        "ABCBoundary",
+        "PML",
+        "StablePML",
+        "Absorber",
+        "ModeABCBoundary",
+    }:
+        boundary = boundary_model_from_value(value)
+    if boundary is None:
+        return component_to_ir(value, family=ComponentFamily.BOUNDARY)
+    return BoundaryIR(
+        plus=boundary_edge_to_ir(boundary.plus),
+        minus=boundary_edge_to_ir(boundary.minus),
+    )
+
+
+def _reflection_signs_for_axis(
+    symmetry: int,
+    axis_name: Literal["x", "y", "z"],
+) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    axis_index = "xyz".index(axis_name)
+    spatial_reflection = [1, 1, 1]
+    pseudo_reflection = [-1, -1, -1]
+    spatial_reflection[axis_index] = -1
+    pseudo_reflection[axis_index] = 1
+    electric = tuple(sign * symmetry for sign in spatial_reflection)
+    magnetic = tuple(sign * symmetry for sign in pseudo_reflection)
+    return electric, magnetic
+
+
+def _symmetry_axes_to_ir(symmetry: tuple[int, int, int]) -> tuple[SymmetryAxisIR, ...]:
+    axes: list[SymmetryAxisIR] = []
+    for axis_name, axis_value in zip("xyz", symmetry, strict=True):
+        if axis_value == 0:
+            continue
+        electric_signs, magnetic_signs = _reflection_signs_for_axis(axis_value, axis_name)
+        axes.append(
+            SymmetryAxisIR(
+                axis=axis_name,
+                symmetry=axis_value,
+                electric_signs=electric_signs,
+                magnetic_signs=magnetic_signs,
+            )
+        )
+    return tuple(axes)
+
+
+def boundary_spec_to_ir(
+    value: object,
+    *,
+    symmetry: tuple[int, int, int] = (0, 0, 0),
+) -> BoundarySpecIR | ComponentIR:
+    """Lower a supported BoundarySpec container into typed execution IR."""
+
+    boundary_spec: BoundarySpec | None = None
+    if isinstance(value, BoundarySpec):
+        boundary_spec = value
+    elif isinstance(value, Mapping) and str(value.get("type")) == "BoundarySpec":
+        try:
+            boundary_spec = boundary_spec_model_from_value(value)
+        except Exception:  # noqa: BLE001
+            boundary_spec = None
+    if boundary_spec is None:
+        return component_to_ir(value, family=ComponentFamily.BOUNDARY)
+
+    periodic_axes: list[str] = []
+    bloch_axes: list[str] = []
+    reflective_axes: list[str] = []
+    abc_axes: list[str] = []
+    abc_faces: list[str] = []
+    pml_axes: list[str] = []
+    pml_faces: list[str] = []
+    stable_pml_axes: list[str] = []
+    stable_pml_faces: list[str] = []
+    absorber_axes: list[str] = []
+    absorber_faces: list[str] = []
+    requires_complex_fields = False
+    axes = {}
+    for axis_name, axis_boundary in zip("xyz", boundary_spec.as_tuple(), strict=True):
+        lowered = boundary_to_ir(axis_boundary)
+        if not isinstance(lowered, BoundaryIR):
+            return component_to_ir(value, family=ComponentFamily.BOUNDARY)
+        axes[axis_name] = lowered
+        edge_types = {lowered.minus.component_type, lowered.plus.component_type}
+        if edge_types == {"Periodic"}:
+            periodic_axes.append(axis_name)
+        elif edge_types == {"BlochBoundary"}:
+            bloch_axes.append(axis_name)
+            requires_complex_fields = True
+        elif edge_types == {"ABCBoundary"}:
+            abc_axes.append(axis_name)
+        elif edge_types <= {"PML", "StablePML", "Absorber"}:
+            pml_axes.append(axis_name)
+            if lowered.minus.component_type in {"PML", "StablePML", "Absorber"}:
+                pml_faces.append(f"{axis_name}.minus")
+            if lowered.plus.component_type in {"PML", "StablePML", "Absorber"}:
+                pml_faces.append(f"{axis_name}.plus")
+            reflective_axes.append(axis_name)
+        else:
+            if lowered.minus.component_type in {"PML", "StablePML", "Absorber"}:
+                pml_faces.append(f"{axis_name}.minus")
+            if lowered.plus.component_type in {"PML", "StablePML", "Absorber"}:
+                pml_faces.append(f"{axis_name}.plus")
+            if (
+                lowered.minus.component_type in {"PML", "StablePML", "Absorber"}
+                or lowered.plus.component_type in {"PML", "StablePML", "Absorber"}
+            ) and axis_name not in pml_axes:
+                pml_axes.append(axis_name)
+            reflective_axes.append(axis_name)
+        if lowered.minus.component_type == "ABCBoundary" or lowered.plus.component_type == "ABCBoundary":
+            if axis_name not in abc_axes:
+                abc_axes.append(axis_name)
+        if lowered.minus.component_type == "ABCBoundary":
+            abc_faces.append(f"{axis_name}.minus")
+        if lowered.plus.component_type == "ABCBoundary":
+            abc_faces.append(f"{axis_name}.plus")
+        if lowered.minus.component_type == "StablePML" or lowered.plus.component_type == "StablePML":
+            stable_pml_axes.append(axis_name)
+        if lowered.minus.component_type == "StablePML":
+            stable_pml_faces.append(f"{axis_name}.minus")
+        if lowered.plus.component_type == "StablePML":
+            stable_pml_faces.append(f"{axis_name}.plus")
+        if lowered.minus.component_type == "Absorber" or lowered.plus.component_type == "Absorber":
+            absorber_axes.append(axis_name)
+        if lowered.minus.component_type == "Absorber":
+            absorber_faces.append(f"{axis_name}.minus")
+        if lowered.plus.component_type == "Absorber":
+            absorber_faces.append(f"{axis_name}.plus")
+    symmetry_axes = _symmetry_axes_to_ir(symmetry)
+    return BoundarySpecIR(
+        x=axes["x"],
+        y=axes["y"],
+        z=axes["z"],
+        requires_complex_fields=requires_complex_fields,
+        periodic_axes=tuple(periodic_axes),
+        bloch_axes=tuple(bloch_axes),
+        reflective_axes=tuple(reflective_axes),
+        abc_axes=tuple(abc_axes),
+        abc_faces=tuple(abc_faces),
+        pml_axes=tuple(pml_axes),
+        pml_faces=tuple(pml_faces),
+        stable_pml_axes=tuple(stable_pml_axes),
+        stable_pml_faces=tuple(stable_pml_faces),
+        absorber_axes=tuple(absorber_axes),
+        absorber_faces=tuple(absorber_faces),
+        active_symmetry_axes=tuple(axis.axis for axis in symmetry_axes),
+        symmetry_axes=symmetry_axes,
+    )
 
 
 def _resolved_grid_axis_to_ir(value: ResolvedGridAxis) -> ResolvedGridAxisIR:
@@ -935,6 +1735,22 @@ def scene_to_ir(scene: Scene) -> SceneIR:
 
 def simulation_to_ir(simulation: Simulation) -> SimulationIR:
     """Lower a public simulation shell into a versioned execution-IR snapshot."""
+    runtime_controls = None
+    if simulation.grid_spec is not None:
+        compiled_controls = compile_runtime_controls(simulation)
+        runtime_controls = RuntimeControlsIR(
+            dt=compiled_controls.dt,
+            num_time_steps=compiled_controls.num_time_steps,
+            max_step_index=compiled_controls.max_step_index,
+            scaled_courant=compiled_controls.scaled_courant,
+            cfl_spacings=compiled_controls.cfl_spacings,
+            primary_stop_reason=compiled_controls.primary_stop_reason.value,
+            convergence_policy=compiled_controls.convergence_policy.value,
+            shutoff=compiled_controls.shutoff,
+            shutoff_check_interval=compiled_controls.shutoff_check_interval,
+            normalize_index=compiled_controls.normalize_index,
+            user_step_limit=compiled_controls.user_step_limit,
+        )
     return SimulationIR(
         original_type=simulation.type,
         autofdtd_version=simulation.version,
@@ -942,6 +1758,7 @@ def simulation_to_ir(simulation: Simulation) -> SimulationIR:
         size=simulation.size,
         run_time=simulation.run_time,
         courant=simulation.courant,
+        normalize_index=simulation.normalize_index,
         symmetry=simulation.symmetry,
         shutoff=simulation.shutoff,
         scene=scene_to_ir(simulation),
@@ -953,7 +1770,7 @@ def simulation_to_ir(simulation: Simulation) -> SimulationIR:
             for monitor in simulation.monitors
         ),
         boundary_spec=(
-            component_to_ir(simulation.boundary_spec, family=ComponentFamily.BOUNDARY)
+            boundary_spec_to_ir(simulation.boundary_spec, symmetry=simulation.symmetry)
             if simulation.boundary_spec is not None
             else None
         ),
@@ -967,6 +1784,7 @@ def simulation_to_ir(simulation: Simulation) -> SimulationIR:
             if simulation.subpixel is not None
             else None
         ),
+        runtime_controls=runtime_controls,
     )
 
 

@@ -1,7 +1,26 @@
 """Warp kernel conventions and staged update namespace."""
 
+from autofdtd.kernels.boundaries import (
+    ABCBoundaryState,
+    ABCFaceState,
+    WARP_AVAILABLE as BOUNDARY_WARP_AVAILABLE,
+    PMLBoundaryState,
+    PMLFaceState,
+    apply_abc_layers,
+    apply_axis_boundary_ghosts,
+    apply_boundary_ghosts,
+    apply_boundary_stages,
+    apply_pml_layers,
+    boundary_edge_transform,
+    boundary_kernel_metadata,
+    symmetry_transform,
+)
 from autofdtd.kernels.materials import (
+    AnisotropicAuxiliaryState,
     WARP_AVAILABLE,
+    allocate_anisotropic_state,
+    anisotropic_electric_update,
+    anisotropic_magnetic_update,
     PoleResidueAuxiliaryState,
     allocate_pole_residue_state,
     constitutive_kernel_metadata,
@@ -10,14 +29,41 @@ from autofdtd.kernels.materials import (
     pole_residue_electric_update,
     warp_backend_available,
 )
+from autofdtd.kernels.sources import (
+    WARP_AVAILABLE as SOURCE_WARP_AVAILABLE,
+    inject_uniform_current_source,
+    uniform_current_density,
+    uniform_current_source_kernel_metadata,
+)
 
 __all__ = [
+    "ABCBoundaryState",
+    "ABCFaceState",
+    "AnisotropicAuxiliaryState",
+    "BOUNDARY_WARP_AVAILABLE",
+    "PMLBoundaryState",
+    "PMLFaceState",
     "PoleResidueAuxiliaryState",
+    "SOURCE_WARP_AVAILABLE",
     "WARP_AVAILABLE",
+    "apply_abc_layers",
+    "allocate_anisotropic_state",
     "allocate_pole_residue_state",
+    "apply_axis_boundary_ghosts",
+    "apply_boundary_ghosts",
+    "apply_boundary_stages",
+    "apply_pml_layers",
+    "boundary_edge_transform",
+    "anisotropic_electric_update",
+    "anisotropic_magnetic_update",
+    "boundary_kernel_metadata",
     "constitutive_kernel_metadata",
     "electric_constitutive_update",
     "magnetic_constitutive_update",
     "pole_residue_electric_update",
+    "symmetry_transform",
+    "uniform_current_density",
+    "uniform_current_source_kernel_metadata",
+    "inject_uniform_current_source",
     "warp_backend_available",
 ]

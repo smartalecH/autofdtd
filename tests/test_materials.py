@@ -4,13 +4,21 @@ import numpy as np
 import pytest
 
 from autofdtd.api import (
+    AnisotropicMedium,
     Box,
+    CustomAnisotropicMedium,
+    CustomMedium,
     Debye,
     Drude,
+    FullyAnisotropicMedium,
     Lorentz,
+    LossyMetalMedium,
     Medium,
+    Medium2D,
     PECMedium,
     PMCMedium,
+    PerturbationMedium,
+    PerturbationPoleResidue,
     PoleResidue,
     Scene,
     Sellmeier,
@@ -19,10 +27,13 @@ from autofdtd.api import (
     StructurePriorityMode,
 )
 from autofdtd.compiler import (
+    AnisotropicMaterialCoefficients,
     EPSILON_0,
     MU_0,
     ConstitutiveMode,
     PoleResidueMaterialCoefficients,
+    compile_anisotropic_medium_coefficients,
+    compile_medium_coefficients,
     compile_debye_coefficients,
     compile_drude_coefficients,
     compile_isotropic_medium_coefficients,
@@ -32,7 +43,9 @@ from autofdtd.compiler import (
     compile_sellmeier_coefficients,
     sample_scene_mediums,
 )
+from autofdtd.materials import medium_model_from_value
 from autofdtd.ir import (
+    AnisotropicMediumIR,
     DebyeIR,
     DrudeIR,
     LorentzIR,
@@ -43,6 +56,9 @@ from autofdtd.ir import (
     simulation_to_ir,
 )
 from autofdtd.kernels import (
+    allocate_anisotropic_state,
+    anisotropic_electric_update,
+    anisotropic_magnetic_update,
     allocate_pole_residue_state,
     constitutive_kernel_metadata,
     electric_constitutive_update,
@@ -72,6 +88,103 @@ def test_isotropic_medium_models_validate_and_serialize() -> None:
 
     with pytest.raises(ValueError, match="conductivity must be a non-negative finite value"):
         Medium(conductivity=-1.0)
+
+
+def test_anisotropic_medium_models_validate_serialize_and_eval_diagonal_response() -> None:
+    medium = AnisotropicMedium(
+        name=" crystal ",
+        xx=Medium(permittivity=2.0),
+        yy=PoleResidue(eps_inf=2.5, poles=(((-1.0e12, 0.0), (1.0e10, 0.0)),)),
+        zz=PECMedium(name=" cap "),
+    )
+
+    diagonal = medium.eps_diagonal(200e12)
+
+    assert medium.name == "crystal"
+    assert medium.component_types == ("Medium", "PoleResidue", "PECMedium")
+    assert diagonal[0].real == pytest.approx(2.0)
+    assert diagonal[2] == pytest.approx(0.0j)
+
+
+def test_fully_anisotropic_medium_and_medium2d_expose_explicit_phase1_policy() -> None:
+    tensor = FullyAnisotropicMedium(
+        name=" tensor ",
+        permittivity=((2.0, 0.1, 0.0), (0.1, 2.5, 0.0), (0.0, 0.0, 1.7)),
+    )
+    sheet = Medium2D(
+        name=" sheet ",
+        ss=Medium(permittivity=1.5, conductivity=0.2),
+        tt=Medium(permittivity=1.8, conductivity=0.1),
+    )
+
+    assert tensor.name == "tensor"
+    assert "deferred" in tensor.phase1_policy
+    assert sheet.name == "sheet"
+    assert "not a directly supported simulation medium" in sheet.phase1_policy
+
+    with pytest.raises(ValueError, match="positive"):
+        FullyAnisotropicMedium(permittivity=((0.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)))
+
+    with pytest.raises(ValueError, match="both PECMedium or both non-PEC"):
+        Medium2D(ss=PECMedium(), tt=Medium())
+
+
+def test_advanced_material_policy_models_parse_and_expose_explicit_phase1_guidance() -> None:
+    lossy = LossyMetalMedium(
+        name=" metal ",
+        conductivity=5.0e6,
+        frequency_range=(8.0e9, 12.0e9),
+        roughness=5.0e-9,
+    )
+    perturbation = PerturbationMedium(
+        name=" thermo ",
+        permittivity=2.5,
+        permittivity_perturbation={"heat": {"coeff": 1.0e-4}},
+    )
+    dispersive_perturbation = PerturbationPoleResidue(
+        name=" tuned ",
+        eps_inf=2.0,
+        poles=(((-1.0e12, 0.0), (1.0e10, 0.0)),),
+        eps_inf_perturbation={"heat": {"coeff": 2.0e-4}},
+    )
+    custom = CustomMedium(name=" grin ", permittivity={"dataset": "eps"})
+    custom_tensor = CustomAnisotropicMedium(
+        name=" tensor ",
+        xx={"type": "CustomMedium", "permittivity": {"dataset": "xx"}},
+        yy={"type": "CustomMedium", "permittivity": {"dataset": "yy"}},
+        zz={"type": "CustomMedium", "permittivity": {"dataset": "zz"}},
+    )
+
+    assert lossy.name == "metal"
+    assert "deferred" in lossy.phase1_policy
+    assert lossy.to_medium_approximation().conductivity == pytest.approx(5.0e6)
+    assert perturbation.name == "thermo"
+    assert "not execute" in perturbation.phase1_policy
+    assert perturbation.base_medium().permittivity == pytest.approx(2.5)
+    assert "not execute" in dispersive_perturbation.phase1_policy
+    assert dispersive_perturbation.base_medium().eps_inf == pytest.approx(2.0)
+    assert "compatibility inspection" in custom.phase1_policy
+    assert "compatibility inspection" in custom_tensor.phase1_policy
+
+    with pytest.raises(ValueError, match="strictly increasing"):
+        LossyMetalMedium(conductivity=5.0e6, frequency_range=(12.0e9, 8.0e9))
+
+
+def test_medium2d_conversion_helpers_lower_to_phase1_supported_media() -> None:
+    sheet = Medium2D(
+        ss=Medium(permittivity=1.0, conductivity=0.4),
+        tt=Sellmeier(coeffs=((0.5, 3.0e-15),)),
+    )
+
+    volumetric = sheet.to_anisotropic_medium(axis="z", thickness=5.0e-9)
+    pole_residue = sheet.to_pole_residue(thickness=5.0e-9)
+
+    assert isinstance(volumetric, AnisotropicMedium)
+    assert isinstance(volumetric.xx, Medium)
+    assert isinstance(volumetric.yy, PoleResidue)
+    assert isinstance(volumetric.zz, Medium)
+    assert pole_residue.eps_inf >= 1.0
+    assert pole_residue.num_poles >= 1
 
 
 def test_pole_residue_model_validates_and_matches_eps_formula() -> None:
@@ -279,6 +392,23 @@ def test_pole_residue_coefficient_compilation_prepares_auxiliary_terms() -> None
     assert first_drive == pytest.approx(expected_drive)
 
 
+def test_anisotropic_coefficient_compilation_prepares_per_axis_branches() -> None:
+    dt = 1.5e-12
+    medium = AnisotropicMedium(
+        xx=Medium(permittivity=2.0, conductivity=0.1),
+        yy=PoleResidue(eps_inf=2.5, poles=(((-1.0e13, 0.0), (2.0e11, 0.0)),)),
+        zz=PECMedium(),
+    )
+
+    coeffs = compile_anisotropic_medium_coefficients(medium, dt=dt)
+
+    assert isinstance(coeffs, AnisotropicMaterialCoefficients)
+    assert coeffs.component_medium_types == ("Medium", "PoleResidue", "PECMedium")
+    assert coeffs.xx.electric_mode is ConstitutiveMode.STANDARD
+    assert coeffs.yy.medium_type == "PoleResidue"
+    assert coeffs.zz.electric_mode is ConstitutiveMode.CLAMP_ZERO
+
+
 def test_sellmeier_compilation_reuses_pole_residue_auxiliary_contract() -> None:
     dt = 1.5e-12
     medium = Sellmeier(coeffs=((0.6961663, 4.67914825849e-15), (0.4079426, 0.0)))
@@ -377,6 +507,34 @@ def test_scene_coefficient_compilation_preserves_sellmeier_family_tag() -> None:
     assert compiled[0].medium.medium_type == "Sellmeier"
 
 
+def test_medium2d_and_fully_anisotropic_raise_explicit_phase1_runtime_errors() -> None:
+    with pytest.raises(ValueError, match="Medium2D is not a directly supported Phase 1 runtime medium"):
+        compile_medium_coefficients(Medium2D(ss=Medium(), tt=Medium()), dt=1e-12)
+
+    with pytest.raises(ValueError, match="runtime compilation is deferred"):
+        compile_medium_coefficients(FullyAnisotropicMedium(), dt=1e-12)
+
+
+def test_advanced_material_policy_buckets_raise_explicit_runtime_errors() -> None:
+    with pytest.raises(ValueError, match="LossyMetalMedium parsing is available"):
+        compile_medium_coefficients(
+            LossyMetalMedium(conductivity=5.0e6, frequency_range=(8.0e9, 12.0e9)),
+            dt=1e-12,
+        )
+
+    with pytest.raises(ValueError, match="PerturbationMedium parsing is available"):
+        compile_medium_coefficients(
+            PerturbationMedium(permittivity=2.5, permittivity_perturbation={"heat": {"coeff": 1.0e-4}}),
+            dt=1e-12,
+        )
+
+    with pytest.raises(ValueError, match="custom-media reject bucket"):
+        compile_medium_coefficients(
+            CustomMedium(permittivity={"dataset": "eps"}),
+            dt=1e-12,
+        )
+
+
 def test_typed_medium_ir_is_emitted_for_simulations() -> None:
     simulation = Simulation(
         size=(4.0, 4.0, 4.0),
@@ -397,6 +555,78 @@ def test_typed_medium_ir_is_emitted_for_simulations() -> None:
     assert isinstance(simulation_ir.scene.background_medium, PoleResidueIR)
     assert isinstance(simulation_ir.scene.structures[0].medium, PECMediumIR)
     assert isinstance(simulation_ir.scene.structures[0].background_medium, PMCMediumIR)
+
+
+def test_anisotropic_medium_ir_is_emitted_for_simulations() -> None:
+    simulation = Simulation(
+        size=(4.0, 4.0, 4.0),
+        run_time=1.0,
+        medium=AnisotropicMedium(
+            xx=Medium(permittivity=2.0),
+            yy=Sellmeier(coeffs=((0.5, 3.0e-15),)),
+            zz=PECMedium(),
+        ),
+    )
+
+    simulation_ir = simulation_to_ir(simulation)
+
+    assert isinstance(simulation_ir.scene.background_medium, AnisotropicMediumIR)
+    assert simulation_ir.scene.background_medium.yy.component_type == "Sellmeier"
+
+
+def test_medium2d_and_fully_anisotropic_are_rejected_by_simulation_validation() -> None:
+    with pytest.raises(Exception, match="Medium2D"):
+        Simulation(size=(4.0, 4.0, 4.0), run_time=1.0, medium=Medium2D(ss=Medium(), tt=Medium()))
+
+    with pytest.raises(Exception, match="FullyAnisotropicMedium"):
+        Simulation(size=(4.0, 4.0, 4.0), run_time=1.0, medium=FullyAnisotropicMedium())
+
+
+def test_deferred_and_rejected_advanced_media_are_mapped_by_validation_instead_of_unknown() -> None:
+    with pytest.raises(Exception, match="deferred feature 'LossyMetalMedium'"):
+        Simulation(
+            size=(4.0, 4.0, 4.0),
+            run_time=1.0,
+            medium=LossyMetalMedium(conductivity=5.0e6, frequency_range=(8.0e9, 12.0e9)),
+        )
+
+    with pytest.raises(Exception, match="deferred feature 'PerturbationMedium'"):
+        Simulation(
+            size=(4.0, 4.0, 4.0),
+            run_time=1.0,
+            medium=PerturbationMedium(permittivity=2.5, permittivity_perturbation={"heat": {"coeff": 1.0e-4}}),
+        )
+
+    with pytest.raises(Exception, match="rejected clearly feature 'CustomMedium'"):
+        Simulation(
+            size=(4.0, 4.0, 4.0),
+            run_time=1.0,
+            medium=CustomMedium(permittivity={"dataset": "eps"}),
+        )
+
+    with pytest.raises(Exception, match="rejected clearly feature 'CustomPoleResidue'"):
+        Simulation(
+            size=(4.0, 4.0, 4.0),
+            run_time=1.0,
+            medium={"type": "CustomPoleResidue", "eps_dataset": "eps"},
+        )
+
+
+def test_medium_model_from_value_parses_explicit_advanced_policy_surfaces() -> None:
+    assert isinstance(
+        medium_model_from_value(
+            {"type": "LossyMetalMedium", "conductivity": 5.0e6, "frequency_range": (8.0e9, 12.0e9)}
+        ),
+        LossyMetalMedium,
+    )
+    assert isinstance(
+        medium_model_from_value(
+            {"type": "PerturbationPoleResidue", "eps_inf": 2.0, "poles": (((-1.0e12, 0.0), (1.0e10, 0.0)),)}
+        ),
+        PerturbationPoleResidue,
+    )
+    parsed = medium_model_from_value({"type": "CustomPoleResidue", "eps_dataset": "eps"})
+    assert parsed.type == "CustomPoleResidue"
 
 
 def test_sellmeier_ir_is_emitted_for_simulations() -> None:
@@ -502,6 +732,41 @@ def test_sellmeier_kernel_update_uses_shared_dispersive_path() -> None:
     assert np.allclose(updated_e, baseline - coeffs.electric_drive * polarization_current)
 
 
+def test_anisotropic_kernel_updates_apply_axis_specific_paths() -> None:
+    coeffs = compile_anisotropic_medium_coefficients(
+        AnisotropicMedium(
+            xx=Medium(permittivity=2.0),
+            yy=PoleResidue(eps_inf=2.5, poles=(((-2.0e12, 0.0), (8.0e10, 0.0)),)),
+            zz=PECMedium(),
+        ),
+        dt=1e-12,
+    )
+    electric = np.array([[1.0, -0.5, 0.25], [0.4, 0.2, -0.1]])
+    magnetic = np.array([[0.3, -0.1, 0.5], [0.2, 0.4, -0.2]])
+    curl_h = np.array([[0.1, 0.2, -0.1], [0.05, -0.3, 0.4]])
+    curl_e = np.array([[0.2, -0.4, 0.1], [-0.3, 0.2, 0.5]])
+    state = allocate_anisotropic_state(coeffs, field_shape=electric.shape[:-1])
+
+    updated_e, updated_state, polarization_current = anisotropic_electric_update(
+        electric,
+        curl_h,
+        coeffs,
+        state,
+        dt=1e-12,
+    )
+    updated_h = anisotropic_magnetic_update(magnetic, curl_e, coeffs)
+
+    baseline_x = coeffs.xx.electric_decay * electric[:, 0] + coeffs.xx.electric_drive * curl_h[:, 0]
+    baseline_y = coeffs.yy.electric_decay * electric[:, 1] + coeffs.yy.electric_drive * curl_h[:, 1]
+    baseline_z = np.zeros_like(electric[:, 2])
+
+    assert np.allclose(updated_e[:, 0], baseline_x)
+    assert np.all(updated_state.yy.polarization[0] != 0.0)
+    assert np.allclose(updated_e[:, 1], baseline_y - coeffs.yy.electric_drive * polarization_current[:, 1])
+    assert np.allclose(updated_e[:, 2], baseline_z)
+    assert updated_h.shape == magnetic.shape
+
+
 @pytest.mark.parametrize(
     ("medium", "compiler"),
     [
@@ -544,3 +809,5 @@ def test_constitutive_kernel_metadata_reports_backend_choice() -> None:
     assert "Lorentz" in metadata["dispersive_medium_paths"]
     assert "Drude" in metadata["dispersive_medium_paths"]
     assert "Debye" in metadata["dispersive_medium_paths"]
+    assert "AnisotropicMedium" in metadata["anisotropic_medium_paths"]
+    assert "anisotropic_electric_update" in metadata["stages"]

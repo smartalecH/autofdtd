@@ -9,6 +9,8 @@ nav:
   - Geometry Scope: geometry.md
   - Grid Scope: grid.md
   - Material Scope: materials.md
+  - Boundary Scope: boundaries.md
+  - Runtime Controls: runtime-controls.md
   - Feature Matrix: feature-matrix.md
   - Development: development.md
 plugins:

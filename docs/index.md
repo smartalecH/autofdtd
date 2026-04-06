@@ -15,6 +15,9 @@ will fill with concrete models, compilation logic, and Warp kernels.
 - concrete `UniformGrid`, `CustomGrid`, `CustomGridBoundaries`, `AutoGrid`, and `GridSpec` models
 - `GridRefinement` and `LayerRefinementSpec` planning surfaces for early meshing metadata
 - `Simulation.resolved_grid()` for inspectable axis-boundary planning
+- `Periodic`, `PECBoundary`, `PMCBoundary`, `Boundary`, and `BoundarySpec` models
+- compiled non-absorbing boundary runtime metadata and ghost-update helpers
+- structured runtime stop decisions, progress logs, and convergence evidence capture
 - versioned `SimulationIR` and `ExecutionPackageIR` transport models for execution handoff
 - test, lint, type-check, and docs entrypoints
 

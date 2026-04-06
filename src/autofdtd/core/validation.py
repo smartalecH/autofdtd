@@ -9,6 +9,22 @@ from typing import SupportsFloat, cast
 
 from pydantic import BaseModel
 
+from autofdtd.boundaries import (
+    ABCBoundary,
+    Absorber,
+    BlochBoundary,
+    BroadbandModeABCFitterParam,
+    BroadbandModeABCSpec,
+    Boundary,
+    BoundarySpec,
+    ModeABCBoundary,
+    PECBoundary,
+    PML,
+    PMCBoundary,
+    Periodic,
+    StablePML,
+    boundary_spec_model_from_value,
+)
 from autofdtd.geometry import (
     ClipOperation,
     GeometryArray,
@@ -32,17 +48,22 @@ from autofdtd.grid import (
     subpixel_model_from_value,
 )
 from autofdtd.materials import (
+    AnisotropicMedium,
     Debye,
     Drude,
     Lorentz,
+    LossyMetalMedium,
     Medium,
     PECMedium,
     PMCMedium,
+    PerturbationMedium,
+    PerturbationPoleResidue,
     PoleResidue,
     Sellmeier,
     medium_model_from_value,
 )
 from autofdtd.planning import FeatureStatus, feature_entry
+from autofdtd.sources import UniformCurrentSource, current_source_model_from_value
 
 Vec3 = tuple[float, float, float]
 _IMPLEMENTED_BOUNDS_GEOMETRY = frozenset(
@@ -59,6 +80,25 @@ _IMPLEMENTED_BOUNDS_GEOMETRY = frozenset(
 )
 _ABSORBING_BOUNDARY_TYPES = frozenset({"PML", "StablePML", "Absorber"})
 _PARTIAL_GEOMETRY_TYPES = frozenset({"ClipOperation"})
+_PHASE1_BOUNDARY_TYPES = frozenset(
+    {
+        "BoundarySpec",
+        "Boundary",
+        "Periodic",
+        "BlochBoundary",
+        "PECBoundary",
+        "PMCBoundary",
+        "ABCBoundary",
+        "ModeABCBoundary",
+        "BroadbandModeABCSpec",
+        "BroadbandModeABCFitterParam",
+        "PML",
+        "PMLParams",
+        "StablePML",
+        "Absorber",
+        "AbsorberParams",
+    }
+)
 _PHASE1_GRID_TYPES = frozenset(
     {
         "GridSpec",
@@ -72,7 +112,20 @@ _PHASE1_GRID_TYPES = frozenset(
 )
 _PHASE1_SUBPIXEL_TYPES = frozenset({"SubpixelSpec", "Staircasing", "PolarizedAveraging"})
 _IMPLEMENTED_MEDIUM_TYPES = frozenset(
-    {"Medium", "PECMedium", "PMCMedium", "PoleResidue", "Sellmeier", "Lorentz", "Drude", "Debye"}
+    {
+        "Medium",
+        "PECMedium",
+        "PMCMedium",
+        "LossyMetalMedium",
+        "PoleResidue",
+        "Sellmeier",
+        "Lorentz",
+        "Drude",
+        "Debye",
+        "AnisotropicMedium",
+        "PerturbationMedium",
+        "PerturbationPoleResidue",
+    }
 )
 _PLANNED_GRID_TYPES = frozenset(
     {
@@ -138,8 +191,12 @@ def normalize_component(component: object, *, context: str) -> object:
         return _normalize_grid(normalized)
     if context == "subpixel":
         return _normalize_subpixel(normalized)
+    if context == "boundary_spec":
+        return _normalize_boundary_spec(normalized)
     if context in {"medium", "background_medium", "scene.medium"}:
         return _normalize_medium(normalized)
+    if context == "source":
+        return _normalize_source(normalized)
     return normalized
 
 
@@ -180,6 +237,19 @@ def validate_simulation_bounds(
 
 def coerce_zero_dim_boundaries(boundary_spec: object, *, size: Vec3) -> object:
     """Coerce absorbing boundaries to periodic boundaries on zero-sized axes."""
+
+    if isinstance(boundary_spec, BoundarySpec):
+        updated = {}
+        changed = False
+        for axis_index, axis_name in enumerate("xyz"):
+            axis_boundary = boundary_spec[axis_name]
+            if size[axis_index] != 0.0:
+                updated[axis_name] = axis_boundary
+                continue
+            coerced = _coerce_axis_boundary(axis_boundary, axis_name=axis_name)
+            updated[axis_name] = coerced
+            changed = changed or coerced is not axis_boundary
+        return boundary_spec.copy_update(**updated) if changed else boundary_spec
 
     if not isinstance(boundary_spec, Mapping):
         return boundary_spec
@@ -284,7 +354,7 @@ def _validate_supported_types(component: object, *, context: str) -> None:
     for feature_name in _iter_type_tags(component):
         if context == "geometry" and feature_name in {"ClipOperation", "GeometryTransform"}:
             continue
-        entry = feature_entry(feature_name)
+        entry = _feature_entry_for_type(feature_name, context=context)
         if entry is None:
             raise UnsupportedFeatureError(
                 f"{context} uses unknown feature type {feature_name!r}; add it to the Phase 1 "
@@ -299,6 +369,25 @@ def _validate_supported_types(component: object, *, context: str) -> None:
         raise UnsupportedFeatureError(
             f"{context} uses {status_text} feature {feature_name!r}. {entry.notes}"
         )
+
+
+def _feature_entry_for_type(feature_name: str, *, context: str):
+    entry = feature_entry(feature_name)
+    if entry is not None:
+        return entry
+    if context == "boundary_spec" and feature_name == "PMLParams":
+        return feature_entry("PML")
+    if context == "boundary_spec" and feature_name == "AbsorberParams":
+        return feature_entry("Absorber")
+    if context == "boundary_spec" and feature_name in {
+        "BroadbandModeABCSpec",
+        "BroadbandModeABCFitterParam",
+    }:
+        return feature_entry("ModeABCBoundary")
+    if context in {"medium", "background_medium", "scene.medium"}:
+        if feature_name.startswith("Custom"):
+            return feature_entry("CustomMedia")
+    return None
 
 
 def _iter_type_tags(value: object) -> Iterable[str]:
@@ -428,10 +517,39 @@ def _normalize_subpixel(component: object) -> object:
     return subpixel_model_from_value(component)
 
 
+def _normalize_boundary_spec(component: object) -> object:
+    if isinstance(component, BoundarySpec):
+        return component
+    if not isinstance(component, Mapping):
+        return component
+    boundary_type = component_type_name(component)
+    if boundary_type != "BoundarySpec":
+        raise ValueError("simulation.boundary_spec must use a top-level 'BoundarySpec' container")
+    boundary_tags = set(_iter_type_tags(component))
+    if boundary_tags and boundary_tags <= _PHASE1_BOUNDARY_TYPES:
+        return boundary_spec_model_from_value(component).model_dump(
+            mode="python", exclude_none=True
+        )
+    return component
+
+
 def _normalize_medium(component: object) -> object:
     if isinstance(
         component,
-        (Medium, PECMedium, PMCMedium, PoleResidue, Sellmeier, Lorentz, Drude, Debye),
+        (
+            Medium,
+            PECMedium,
+            PMCMedium,
+            LossyMetalMedium,
+            PoleResidue,
+            Sellmeier,
+            Lorentz,
+            Drude,
+            Debye,
+            PerturbationMedium,
+            PerturbationPoleResidue,
+            AnisotropicMedium,
+        ),
     ):
         return component
     if not isinstance(component, Mapping):
@@ -440,6 +558,17 @@ def _normalize_medium(component: object) -> object:
     if medium_type not in _IMPLEMENTED_MEDIUM_TYPES:
         return component
     return medium_model_from_value(component).model_dump(mode="python", exclude_none=True)
+
+
+def _normalize_source(component: object) -> object:
+    if isinstance(component, UniformCurrentSource):
+        return component
+    if not isinstance(component, Mapping):
+        return component
+    source_type = component_type_name(component)
+    if source_type != "UniformCurrentSource":
+        return component
+    return current_source_model_from_value(component).model_dump(mode="python", exclude_none=True)
 
 
 def _supports_phase1_clip_operation(component: object) -> bool:
@@ -499,6 +628,24 @@ def _normalize_slab_bounds(value: Sequence[object]) -> tuple[float, float]:
 
 
 def _coerce_axis_boundary(boundary: object, *, axis_name: str) -> object:
+    if isinstance(boundary, Boundary):
+        updated = {}
+        changed = False
+        for side in ("minus", "plus"):
+            edge = boundary[side]
+            coerced = _coerce_axis_boundary(edge, axis_name=axis_name)
+            updated[side] = coerced
+            changed = changed or coerced is not edge
+        return boundary.copy_update(**updated) if changed else boundary
+    if isinstance(boundary, (Periodic, BlochBoundary, PECBoundary, PMCBoundary)):
+        return boundary
+    if isinstance(boundary, (PML, StablePML, Absorber)):
+        warnings.warn(
+            f"zero-sized axis {axis_name!r} cannot use absorbing boundaries; coercing to Periodic",
+            AutoFDTDValidationWarning,
+            stacklevel=3,
+        )
+        return Periodic()
     if not isinstance(boundary, Mapping):
         return boundary
 

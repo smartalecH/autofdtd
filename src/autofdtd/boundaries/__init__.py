@@ -1,3 +1,51 @@
-"""Boundary-family namespace reserved for public and IR models."""
+"""Boundary-family models for the foundational Phase 1 surface."""
 
-__all__: list[str] = []
+from autofdtd.boundaries.models import (
+    ABCBoundary,
+    Absorber,
+    AbsorberParams,
+    BroadbandModeABCFitterParam,
+    BroadbandModeABCSpec,
+    Boundary,
+    BoundaryEdge,
+    BoundarySpec,
+    BlochBoundary,
+    DEFAULT_ABSORBER_PARAMS,
+    DEFAULT_PML_PARAMS,
+    DEFAULT_STABLE_PML_PARAMS,
+    ModeABCBoundary,
+    PECBoundary,
+    PML,
+    PMLParams,
+    PMCBoundary,
+    Periodic,
+    StablePML,
+    boundary_edge_model_from_value,
+    boundary_model_from_value,
+    boundary_spec_model_from_value,
+)
+
+__all__ = [
+    "ABCBoundary",
+    "Absorber",
+    "AbsorberParams",
+    "BroadbandModeABCFitterParam",
+    "BroadbandModeABCSpec",
+    "Boundary",
+    "BoundaryEdge",
+    "BoundarySpec",
+    "BlochBoundary",
+    "DEFAULT_ABSORBER_PARAMS",
+    "DEFAULT_PML_PARAMS",
+    "DEFAULT_STABLE_PML_PARAMS",
+    "ModeABCBoundary",
+    "PECBoundary",
+    "PML",
+    "PMLParams",
+    "PMCBoundary",
+    "Periodic",
+    "StablePML",
+    "boundary_edge_model_from_value",
+    "boundary_model_from_value",
+    "boundary_spec_model_from_value",
+]

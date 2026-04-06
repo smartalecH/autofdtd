@@ -11,12 +11,21 @@ from autofdtd.core.containers import Scene
 from autofdtd.core.models import AutoFDTDModel
 from autofdtd.core.validation import normalize_vec3
 from autofdtd.materials import (
+    AnisotropicMedium,
+    CustomAnisotropicMedium,
+    CustomMedium,
     Debye,
     Drude,
+    FullyAnisotropicMedium,
+    GenericCustomMedium,
     Lorentz,
+    LossyMetalMedium,
     Medium,
+    Medium2D,
     PECMedium,
     PMCMedium,
+    PerturbationMedium,
+    PerturbationPoleResidue,
     PoleResidue,
     Sellmeier,
     medium_model_from_value,
@@ -81,7 +90,34 @@ class PoleResidueMaterialCoefficients(AutoFDTDModel):
         return len(self.poles)
 
 
-MaterialCoefficients = IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients
+class AnisotropicMaterialCoefficients(AutoFDTDModel):
+    """Compiled diagonal anisotropic coefficients with one material branch per axis."""
+
+    type: str = "AnisotropicMaterialCoefficients"
+    medium_type: str = "AnisotropicMedium"
+    xx: IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients
+    yy: IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients
+    zz: IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients
+    auxiliary_layout: str = "per_axis_shared_scalar_layout"
+
+    @property
+    def components(
+        self,
+    ) -> tuple[
+        IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients,
+        IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients,
+        IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients,
+    ]:
+        return (self.xx, self.yy, self.zz)
+
+    @property
+    def component_medium_types(self) -> tuple[str, str, str]:
+        return (self.xx.medium_type, self.yy.medium_type, self.zz.medium_type)
+
+
+MaterialCoefficients = (
+    IsotropicMaterialCoefficients | PoleResidueMaterialCoefficients | AnisotropicMaterialCoefficients
+)
 
 
 class SceneMaterialSample(AutoFDTDModel):
@@ -95,6 +131,7 @@ class SceneMaterialSample(AutoFDTDModel):
         Medium
         | PECMedium
         | PMCMedium
+        | AnisotropicMedium
         | PoleResidue
         | Sellmeier
         | Lorentz
@@ -306,6 +343,33 @@ def compile_debye_coefficients(
     return compiled.model_copy(update={"medium_type": normalized.type})
 
 
+def compile_anisotropic_medium_coefficients(
+    medium: object,
+    *,
+    dt: float,
+) -> AnisotropicMaterialCoefficients:
+    """Compile a diagonal anisotropic medium into one scalar branch per principal axis."""
+
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+
+    normalized = medium_model_from_value(medium)
+    if not isinstance(normalized, AnisotropicMedium):
+        raise TypeError(f"expected AnisotropicMedium medium, got {type(normalized)!r}")
+
+    compiled_components = tuple(
+        compile_medium_coefficients(component, dt=dt) for component in normalized.components.values()
+    )
+    for component in compiled_components:
+        if isinstance(component, AnisotropicMaterialCoefficients):
+            raise TypeError("nested anisotropic material compilation is not supported")
+    return AnisotropicMaterialCoefficients(
+        xx=compiled_components[0],
+        yy=compiled_components[1],
+        zz=compiled_components[2],
+    )
+
+
 def compile_medium_coefficients(
     medium: object,
     *,
@@ -314,6 +378,37 @@ def compile_medium_coefficients(
     """Compile a supported Phase 1 medium into runtime-ready coefficients."""
 
     normalized = medium_model_from_value(medium)
+    if isinstance(normalized, LossyMetalMedium):
+        raise ValueError(
+            "LossyMetalMedium parsing is available, but runtime compilation is deferred in Phase 1; "
+            "use LossyMetalMedium.to_medium_approximation() for an explicit volumetric fallback"
+        )
+    if isinstance(normalized, Medium2D):
+        raise ValueError(
+            "Medium2D is not a directly supported Phase 1 runtime medium; convert it with "
+            "Medium2D.to_anisotropic_medium() before compilation"
+        )
+    if isinstance(normalized, FullyAnisotropicMedium):
+        raise ValueError(
+            "FullyAnisotropicMedium parsing is available, but runtime compilation is deferred in Phase 1"
+        )
+    if isinstance(normalized, PerturbationMedium):
+        raise ValueError(
+            "PerturbationMedium parsing is available, but runtime perturbation support is deferred "
+            "in Phase 1; compile normalized.base_medium() explicitly if you want the unperturbed medium"
+        )
+    if isinstance(normalized, PerturbationPoleResidue):
+        raise ValueError(
+            "PerturbationPoleResidue parsing is available, but runtime perturbation support is "
+            "deferred in Phase 1; compile normalized.base_medium() explicitly if you want the unperturbed medium"
+        )
+    if isinstance(normalized, (CustomMedium, CustomAnisotropicMedium, GenericCustomMedium)):
+        raise ValueError(
+            f"{normalized.type} is mapped to the Phase 1 custom-media reject bucket and cannot be "
+            "compiled for runtime execution"
+        )
+    if isinstance(normalized, AnisotropicMedium):
+        return compile_anisotropic_medium_coefficients(normalized, dt=dt)
     if isinstance(normalized, PoleResidue):
         return compile_pole_residue_coefficients(normalized, dt=dt)
     if isinstance(normalized, Sellmeier):

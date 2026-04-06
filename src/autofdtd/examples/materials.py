@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from autofdtd.api import (
+    AnisotropicMedium,
     Box,
     Debye,
     Drude,
@@ -16,6 +17,7 @@ from autofdtd.api import (
     StructurePriorityMode,
 )
 from autofdtd.compiler import (
+    compile_anisotropic_medium_coefficients,
     compile_debye_coefficients,
     compile_drude_coefficients,
     compile_isotropic_medium_coefficients,
@@ -103,4 +105,20 @@ def compiled_lorentz_drude_debye_examples() -> dict[str, object]:
             "pole_residue": debye.to_pole_residue().to_payload(),
             "compiled": compile_debye_coefficients(debye, dt=1e-12).to_payload(),
         },
+    }
+
+
+def compiled_anisotropic_example() -> dict[str, object]:
+    """Return a JSON-ready snapshot of diagonal anisotropic coefficient preparation."""
+
+    medium = AnisotropicMedium(
+        name="uniaxial-like",
+        xx=Medium(permittivity=2.0),
+        yy=PoleResidue(eps_inf=2.5, poles=(((-1.0e13, 0.0), (2.0e11, 0.0)),)),
+        zz=PECMedium(name="cap"),
+    )
+    coefficients = compile_anisotropic_medium_coefficients(medium, dt=1e-12)
+    return {
+        "medium": medium.to_payload(),
+        "compiled": coefficients.to_payload(),
     }

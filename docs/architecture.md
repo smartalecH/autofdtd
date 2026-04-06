@@ -70,6 +70,20 @@ in `autofdtd.kernels.materials`. That keeps material validation, scene assignmen
 coefficient preparation, and runtime updates as distinct seams instead of hiding them in
 structure dict payloads.
 
+The boundary namespace now has the first runtime-meaningful boundary subset. `Periodic`,
+`PECBoundary`, `PMCBoundary`, `Boundary`, and `BoundarySpec` are typed public models;
+`autofdtd.ir` lowers them into typed boundary IR; `autofdtd.compiler.boundaries`
+compiles them into per-face halo metadata; and `autofdtd.kernels.boundaries` applies
+periodic-copy or conductor-reflection ghost updates without folding boundary behavior
+into the constitutive kernels.
+
+The runtime namespace now also has an explicit stop-policy seam separate from the
+future Maxwell update loop. `Simulation` exposes derived `scaled_courant`,
+`time_step_size()`, and `num_time_steps()` helpers; `autofdtd.compiler.runtime`
+compiles those controls into a `CompiledRuntimeControls` record; and
+`autofdtd.runtime.controls` evaluates run-time, step-count, and shutoff-based early
+termination without coupling that policy to any particular chunk scheduler.
+
 ## Execution IR
 
 `autofdtd.ir` now defines a versioned transport layer around the public containers:

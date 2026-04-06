@@ -31,7 +31,14 @@ polygon extrusions for representative planar photonics layouts, with explicit Ph
 reject behavior for tapering and other advanced polygon operations. Composite wrappers
 now also cover grouped, transformed, clipped, and repeated-placement layouts, and
 ordered structure precedence is surfaced explicitly for overlap debugging and later
-scene compilation.
+scene compilation. Material support now also includes diagonal `AnisotropicMedium`,
+explicit defer-policy surfaces for `FullyAnisotropicMedium` and `Medium2D`, per-axis
+coefficient preparation, and staged anisotropic constitutive-update helpers that mix
+scalar, dispersive, and clamp branches across `x`, `y`, and `z`. Advanced material
+families now also have explicit Phase 1 policy surfaces: `LossyMetalMedium`,
+`PerturbationMedium`, and `PerturbationPoleResidue` are parsed but rejected from
+runtime compilation with actionable guidance, while `Custom*` media map to a clear
+reject bucket instead of surfacing as unknown feature types.
 
 ## Quick Start
 

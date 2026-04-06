@@ -68,9 +68,9 @@ Statuses:
 | `AnisotropicMedium` | Implement | Needed explicitly and by second-order subpixel smoothing |
 | `FullyAnisotropicMedium` | Defer | Keep mapped |
 | `Medium2D` | Defer | Validation + future support |
-| `LossyMetalMedium` | Defer | Explicit defer bucket |
-| `PerturbationMedium` | Defer | Explicit defer bucket |
-| `Custom*` media families | Reject Clearly | Out of Phase 1 |
+| `LossyMetalMedium` | Defer | Explicit defer bucket with manual volumetric fallback guidance |
+| `PerturbationMedium` / `PerturbationPoleResidue` | Defer | Parsed but not executed in Phase 1 |
+| `Custom*` media families | Reject Clearly | Parsed or bucketed for clear errors, but out of Phase 1 |
 
 ## Boundaries
 
@@ -83,8 +83,8 @@ Statuses:
 | `PML` | Implement | Must-have |
 | `StablePML` | Implement | May land as a supported subset first |
 | `Absorber` | Implement | Important practical fallback |
-| `ABCBoundary` | Defer | Keep mapped |
-| `ModeABCBoundary` | Defer | Keep mapped |
+| `ABCBoundary` | Implement | First-order subset with explicit effective-medium inputs |
+| `ModeABCBoundary` | Defer | Keep mapped until mode-solver work lands |
 | `InternalAbsorber` | Reject Clearly | Out of Phase 1 |
 
 ## Sources

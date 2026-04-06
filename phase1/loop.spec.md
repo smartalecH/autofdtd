@@ -132,107 +132,107 @@ Last Duration: 485.0s
 Completed At: 2026-04-06T03:59:50Z
 Notes: These families are close enough to share a task without becoming ambiguous if the tests name each family explicitly.
 
-## [RUNNING] task-017 - Implement anisotropic medium families, Medium2D policy, and anisotropic kernel support
+## [COMPLETED] task-017 - Implement anisotropic medium families, Medium2D policy, and anisotropic kernel support
 Success: Support the initial anisotropic medium surface, including a clear policy for AnisotropicMedium, FullyAnisotropicMedium, and Medium2D-related behavior, with explicit tests, limitations, coefficient preparation, and anisotropic kernel support.
-Attempts: 18
-Last Run: task-017-attempt-018
-Last Duration: 3.4s
-Completed At: -
+Attempts: 19
+Last Run: task-017-attempt-019
+Last Duration: 502.8s
+Completed At: 2026-04-06T19:06:42Z
 Notes: This task should respect the fact that subpixel smoothing can create effective anisotropy and must land before second-order subpixel materialization is treated as implemented.
 
-## [QUEUED] task-018 - Implement perturbation, lossy-metal, and advanced-material defer buckets
+## [COMPLETED] task-018 - Implement perturbation, lossy-metal, and advanced-material defer buckets
 Success: Provide an explicit Phase 1 handling policy for PerturbationMedium, LossyMetalMedium, custom media, and other advanced material families so the API surface is mapped rather than ignored.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-018-attempt-001
+Last Duration: 399.5s
+Completed At: 2026-04-06T19:13:22Z
 Notes: This is intentionally a policy-heavy task if full implementation is not yet realistic.
 
-## [QUEUED] task-019 - Implement boundary support for Periodic, PECBoundary, PMCBoundary, and Boundary containers
+## [COMPLETED] task-019 - Implement boundary support for Periodic, PECBoundary, PMCBoundary, and Boundary containers
 Success: Support the foundational non-absorbing boundary surface, including Boundary and BoundarySpec composition, periodic behavior, conductor boundaries, and the runtime transform or kernel support needed by the timestep loop.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-019-attempt-001
+Last Duration: 708.3s
+Completed At: 2026-04-06T19:25:10Z
 Notes: These are the first boundary primitives the compiler and runtime should rely on.
 
-## [QUEUED] task-020 - Implement BlochBoundary, symmetry-aware metadata, and phase-aware runtime transforms
+## [COMPLETED] task-020 - Implement BlochBoundary, symmetry-aware metadata, and phase-aware runtime transforms
 Success: Provide BlochBoundary support and the related symmetry-aware metadata and runtime transform support needed for chunk planning and execution lowering.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-020-attempt-001
+Last Duration: 460.9s
+Completed At: 2026-04-06T19:32:51Z
 Notes: This task is important because periodic-phase behavior leaks into runtime metadata and not just public API models.
 
-## [QUEUED] task-021 - Implement PML boundary support with coefficient prep and kernel stages
+## [COMPLETED] task-021 - Implement PML boundary support with coefficient prep and kernel stages
 Success: Support PML boundaries with explicit API and IR models, coefficient preparation, boundary-layer state allocation, kernel-stage integration, and representative absorption tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-021-attempt-001
+Last Duration: 632.6s
+Completed At: 2026-04-06T19:43:24Z
 Notes: PML is important enough to deserve its own task instead of sharing a generic absorbing-boundary bucket.
 
-## [QUEUED] task-022 - Implement StablePML and Absorber boundary support with coefficient prep and kernel stages
+## [COMPLETED] task-022 - Implement StablePML and Absorber boundary support with coefficient prep and kernel stages
 Success: Support StablePML and Absorber boundaries or a clearly delimited subset, including API and IR models, coefficient preparation, kernel-stage integration, and representative tests for practical absorbing-boundary behavior.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-022-attempt-001
+Last Duration: 524.5s
+Completed At: 2026-04-06T19:52:08Z
 Notes: StablePML and Absorber are separate enough from baseline PML to justify their own task.
 
-## [QUEUED] task-023 - Implement ABCBoundary, ModeABCBoundary, and advanced boundary defer policy
+## [COMPLETED] task-023 - Implement ABCBoundary, ModeABCBoundary, and advanced boundary defer policy
 Success: Provide an explicit Phase 1 treatment for ABCBoundary, ModeABCBoundary, and other specialized boundary variants, including concrete implementation where practical and clear reject-or-defer behavior otherwise.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-023-attempt-001
+Last Duration: 823.0s
+Completed At: 2026-04-06T20:05:51Z
 Notes: This task prevents specialized Tidy3D boundary features from disappearing into ambiguity.
 
-## [QUEUED] task-024 - Implement Simulation runtime controls for timestep count, shutoff, and convergence policy
+## [COMPLETED] task-024 - Implement Simulation runtime controls for timestep count, shutoff, and convergence policy
 Success: Support the core Simulation runtime-control surface needed for practical runs, including run-time or step-count control, shutoff or early-stop criteria, and clearly defined convergence-related behavior.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-024-attempt-001
+Last Duration: 696.8s
+Completed At: 2026-04-06T20:17:28Z
 Notes: This task makes convergence and stop behavior explicit instead of leaving it buried inside the simulation loop.
 
-## [QUEUED] task-025 - Implement detailed simulation logging, progress reporting, and convergence evidence capture
+## [COMPLETED] task-025 - Implement detailed simulation logging, progress reporting, and convergence evidence capture
 Success: Execution paths emit structured progress logs, stop-reason records, convergence or shutoff evidence, and enough runtime detail to diagnose practical simulation behavior during end-to-end runs.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-025-attempt-001
+Last Duration: 341.6s
+Completed At: 2026-04-06T20:23:10Z
 Notes: Keep this distinct from benchmark metrics so debugging and validation remain first-class.
 
-## [QUEUED] task-026 - Implement GaussianPulse and ContinuousWave source-time profiles
+## [COMPLETED] task-026 - Implement GaussianPulse and ContinuousWave source-time profiles
 Success: Support GaussianPulse and ContinuousWave source-time profiles with explicit parameter validation, serialization, IR lowering, and representative waveform tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-026-attempt-001
+Last Duration: 752.9s
+Completed At: 2026-04-06T20:35:43Z
 Notes: These are the two most common source-time profiles and should be available early.
 
-## [QUEUED] task-027 - Implement BroadbandPulse and CustomSourceTime profiles
+## [COMPLETED] task-027 - Implement BroadbandPulse and CustomSourceTime profiles
 Success: Support BroadbandPulse and CustomSourceTime or a clearly delimited subset, including API and IR models, validation behavior, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-027-attempt-001
+Last Duration: 279.0s
+Completed At: 2026-04-06T20:40:22Z
 Notes: Keep the more specialized source-time families separate so missing behavior cannot hide behind the common waveforms.
 
-## [QUEUED] task-028 - Implement UniformCurrentSource with placement semantics and injection kernels
+## [COMPLETED] task-028 - Implement UniformCurrentSource with placement semantics and injection kernels
 Success: Support UniformCurrentSource with explicit placement semantics, source-time integration, IR lowering, injection-kernel support, and representative end-to-end tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-028-attempt-001
+Last Duration: 547.3s
+Completed At: 2026-04-06T20:49:29Z
 Notes: This is the cleanest current-source family and should come before the more specialized dipole and custom cases.
 
 ## [QUEUED] task-029 - Implement PointDipole and CustomCurrentSource with injection kernels
 Success: Support PointDipole and CustomCurrentSource or a clearly supported subset, including validation, IR lowering, injection-kernel support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
+Attempts: 88
+Last Run: task-029-attempt-088
+Last Duration: 3.1s
 Completed At: -
 Notes: PointDipole is important because it stresses interpolation and restriction behavior directly.
 
