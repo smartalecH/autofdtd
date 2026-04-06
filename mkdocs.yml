@@ -1,0 +1,23 @@
+site_name: AutoFDTD
+site_description: Phase 1 Maxwell solver package scaffold
+repo_name: autofdtd
+theme:
+  name: material
+nav:
+  - Overview: index.md
+  - Architecture: architecture.md
+  - Geometry Scope: geometry.md
+  - Grid Scope: grid.md
+  - Material Scope: materials.md
+  - Feature Matrix: feature-matrix.md
+  - Development: development.md
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+markdown_extensions:
+  - admonition
+  - tables

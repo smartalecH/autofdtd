@@ -1,0 +1,175 @@
+# Phase 1 Maxwell Solver Loop
+
+## Mission
+
+Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-installable, GPU-first FDTD package whose feature plan is anchored explicitly to the local Tidy3D EM API surface. The loop must produce a Tidy3D-inspired public API, a tagged execution IR, a scene-compilation pipeline, a chunk-based multi-node-ready runtime, Warp kernel conventions, concrete implementations for the highest-priority Tidy3D feature families, validation examples, and documentation without copying protected code or docs from any reference project.
+
+## Operator Policies
+
+- Failure policy: `retry`
+- Permission mode: `danger-full-access`
+- End-of-list behavior: `stop cleanly`
+- Codex working directory: `..` (repo root relative to `phase1/`)
+
+## Global Execution Rules
+
+- Read relevant files before editing.
+- Keep progress notes concise and factual.
+- Treat `loop.spec.md` as the queue source of truth.
+- Report output that matches `output.schema.json`.
+- Use `completed` only when the task's success criteria were actually satisfied.
+- Use `needs_retry` when meaningful work was done but the success criteria are not yet fully met.
+- Use `blocked` only when an external dependency or missing input prevents further progress.
+- Use `failed` when the attempt is unusable or the task direction was not successfully carried out.
+- Prefer producing concrete artifacts and findings over generic summaries.
+- Keep `working-memory.md` concise and deduplicated.
+- Do not repeat reference material in `working-memory.md`; point to local files when possible.
+- Prefer recording file paths, decisions, and distilled facts instead of copying long passages.
+- Do substantial reference-backed work before implementation and keep updating working-memory.md with distilled decisions that later tasks should inherit.
+- Treat Tidy3D compatibility as a typed tagged object-model and lowering problem, not as a loose dict compatibility exercise.
+- Treat the local Tidy3D EM feature surface as the gold standard for feature planning and error-policy decisions in Phase 1.
+- Keep the mathematical stage graph separate from execution scheduling so bulk-synchronous stepping, overlap, and future systolic variants can coexist.
+- Separate scene modeling, scene compilation, runtime stepping, and IO or packaging into distinct subsystems.
+- Use NVIDIA Warp for GPU kernel implementation work and design kernels around stable module contents, persistent arrays, capture-safe stepping, and intentional instrumentation.
+- Do not build a monolithic everything-kernel. Prefer staged update kernels and capability-driven specialization by region or chunk.
+- Every substantive implementation task should include or update tests, examples, benchmarks, or instrumentation that exercise the new behavior.
+- When a Tidy3D feature is not yet supported, implement or document explicit validation or error behavior rather than leaving silent gaps.
+- Record initialization time, JIT time, warm steady-state timestep metrics, and cells-updated-per-second style metrics whenever solver execution paths become runnable.
+- Use local reference repos and papers aggressively for research, but do not copy protected code or documentation into this repository.
+- Assume the current machine has at least two NVIDIA GPUs available and use that for meaningful smoke tests where feasible.
+
+## Output Contract
+
+- `summary` should be a concise outcome statement.
+- `key_findings` should capture the most important concrete discoveries or decisions.
+- `artifacts` should list meaningful outputs with both `path` and `description`.
+- `error_summary` should be filled for `blocked` or `failed` runs and empty otherwise.
+- `next_action` should be `retry`, `human_review`, or `none`.
+## Reference Material
+
+### Reference 1
+
+Repository baseline at bundle generation time: the `autofdtd` repo has a minimal README, phase directories, and an effectively empty src tree. Phase 1 therefore starts from architecture, package skeleton, and subsystem contracts rather than refining an existing solver. The prep-generated feature ledger lives at `phase1/feature-checklist.md` and should be treated as input context for the loop, not as a loop deliverable.
+
+### Reference 2
+
+Tidy3D EM feature surface identified from the local codebase and schemas: Simulation plus Scene and Structure containers; geometry families including Box, Sphere, Cylinder, PolySlab, GeometryGroup, Transformed, ClipOperation, GeometryArray, and TriangleMesh-related paths; material families including Medium, PECMedium, PMCMedium, custom and dispersive isotropic media, PoleResidue, Sellmeier, Lorentz, Drude, Debye, LossyMetalMedium, AnisotropicMedium, FullyAnisotropicMedium, CustomAnisotropicMedium, PerturbationMedium, and Medium2D; boundary families including Periodic, PECBoundary, PMCBoundary, BlochBoundary, PML, StablePML, Absorber, ABCBoundary, ModeABCBoundary, Boundary, and BoundarySpec; source families including GaussianPulse, ContinuousWave, CustomSourceTime, BroadbandPulse, UniformCurrentSource, PointDipole, CustomCurrentSource, CustomFieldSource, ModeSource, PlaneWave, GaussianBeam, AstigmaticGaussianBeam, and TFSF; monitor families including FieldMonitor, FieldTimeMonitor, AuxFieldTimeMonitor, MediumMonitor, PermittivityMonitor, FluxMonitor, FluxTimeMonitor, ModeMonitor, ModeSolverMonitor, GaussianOverlapMonitor, AstigmaticGaussianOverlapMonitor, FieldProjectionAngleMonitor, DirectivityMonitor, FieldProjectionCartesianMonitor, FieldProjectionKSpaceMonitor, DiffractionMonitor, SurfaceFieldMonitor, and SurfaceFieldTimeMonitor; and grid or subpixel controls including UniformGrid, CustomGridBoundaries, CustomGrid, AutoGrid, QuasiUniformGrid, GridRefinement, LayerRefinementSpec, GridSpec, ModeSpec, and SubpixelSpec with staircasing and averaging variants. High-value references: `../tidy3d/tidy3d/components/simulation.py`, `../tidy3d/tidy3d/components/structure.py`, `../tidy3d/tidy3d/components/geometry/base.py`, `../tidy3d/tidy3d/components/geometry/primitives.py`, `../tidy3d/tidy3d/components/geometry/polyslab.py`, `../tidy3d/tidy3d/components/source/current.py`, `../tidy3d/tidy3d/components/source/field.py`, `../tidy3d/tidy3d/components/source/time.py`, `../tidy3d/tidy3d/components/monitor.py`, `../tidy3d/tidy3d/components/medium.py`, `../tidy3d/tidy3d/components/boundary.py`, `../tidy3d/tidy3d/components/grid/grid_spec.py`, `../tidy3d/tidy3d/components/mode_spec.py`, `../tidy3d/tidy3d/components/subpixel_spec.py`, and `../tidy3d/schemas/Simulation.json`.
+
+### Reference 3
+
+Tidy3D compatibility guidance for Phase 1: keep the public and IR models tagged, immutable, schema-driven, and validation-heavy; preserve named monitor access patterns and ordered structure semantics; and front-load an explicit feature matrix that distinguishes must-implement features, defer buckets, and reject-with-clear-error buckets rather than leaving gaps ambiguous.
+
+### Reference 4
+
+Meep architectural findings: the stable decomposition unit is the chunk rather than the rank; a rank may own multiple chunks; chunk ownership, symmetry reduction, and periodic or Bloch remapping behave like logical address transforms over a full-domain view; communication plans are stage-specific and component-family-specific; geometry and material initialization are separate from stepping; and near-to-far is a DFT-backed monitor family rather than a lightweight add-on. The Meep paper sharpens this further: the solver is designed to preserve an illusion of continuous space and time on top of chunked discrete execution, uses pervasive interpolation and restriction for sources, monitors, and field queries, relies on anisotropic subpixel smoothing to remove first-order interface error, and favors bulk region operations over pointwise APIs. High-value references: `../meep/doc/docs/Parallel_Meep.md`, `../meep/doc/docs/Chunks_and_Symmetry.md`, `../meep/src/structure.cpp`, `../meep/src/boundaries.cpp`, `../meep/src/fields.cpp`, `../meep/src/loop_in_chunks.cpp`, `../meep/src/near2far.cpp`, and `papers/meep_paper.pdf`.
+
+### Reference 5
+
+Warp backend findings: Warp kernels are Python-authored and JIT-compiled per module; all kernels in a module compile together and should be stabilized early to avoid reload churn. Arrays, vectors, matrices, and structs are strong fits for field buffers and metadata. CUDA launches are asynchronous; streams and events are first-class; graph capture and replay are realistic optimization targets for timestep loops; tile APIs are promising for later shared-memory optimizations but should not block a first Phase 1 backend; and built-in profiling via ScopedTimer, NVTX, and CUDA activity summaries is good enough for Phase 1 instrumentation. Benchmarking guidance from `papers/gpu_benchmarking.pdf` adds that FDTD should be tracked primarily in cells updated per second or Gcells/s, usually as a bandwidth-bound workload, and that benchmark metadata must preserve grid shape, total cells, timestep count, precision, boundary or material class, single-versus-multi-GPU context, and separate end-to-end versus steady-state timing.
+
+### Reference 6
+
+Scheduling findings from `papers/systolic_fdtd.pdf`: a naive GPU FDTD is constrained mostly by memory traffic and synchronization, so the important architectural seam is the split between chunk-local interior work, lower-dimensional boundary exchange, and a pluggable execution policy that may later delay or overlap neighbor consumption. Phase 1 should remain bulk-synchronous by default, but chunk metadata and runtime orchestration should already preserve per-face, per-stage halo semantics, interior-versus-boundary planning, and scheduler hooks so future systolic or overlapped execution can be added without redesign.
+
+### Reference 7
+
+Geometry and mode-solver findings: GeometryPrimitives.jl is centered on analytic shape queries such as level, nearest surface point, normals, bounds, and translation rather than a full scene graph. Orthogonal prisms and convex polygons are natural early scope; subpixel support exists mainly through local plane-cut overlap ideas rather than a full arbitrary-shape averaging engine; KD-tree and periodic replication patterns matter early; and libctl provides richer object-model and overlap-integral precedents for material-carrying ordered geometry lists and periodic duplication. VectorModesolver.jl is best treated as a formulation and interface reference rather than a polished dependency surface. It expects a sampled tensor-valued permittivity callback over a rectilinear cross-section, assembles a sparse operator, solves for magnetic fields, and reconstructs electric fields.
+
+### Reference 8
+
+Working-memory seed facts that later tasks should preserve: chunk is the architectural unit while rank or device is placement; stored topology and logical topology diverge because of symmetry and periodic or Bloch remapping; scene compilation must remain distinct from stepping; continuous problem specifications must lower through explicit interpolation and restriction into discrete execution artifacts; geometry lowering and materialization must precede serious kernels; subpixel smoothing can induce effective anisotropy even for physically isotropic materials; stage-specific halos and monitor metadata should be explicit; Tidy3D-style compatibility should be represented as a tagged immutable IR with normalization rules and unsupported-feature policy; runtime metrics should include Gcells/s plus separate end-to-end and steady-state timing; and near-to-far should be built on top of DFT monitor infrastructure rather than as an isolated feature.
+
+
+## Runtime Context
+
+- The runner injects the current task's title, success criteria, and notes from `loop.spec.md` on every iteration. Do not duplicate the full task catalog here.
+- Use `phase1/loop.spec.md` as the authoritative task board.
+- Use `phase1/feature-checklist.md` as the compact feature ledger for what Phase 1 should implement, defer, or reject clearly.
+- Use `phase1/kernel-formula-sources.md` as the compact source map for kernel formulas, update equations, and implementation references.
+- Keep the key architectural dependencies in mind while executing any task:
+  - mode solver work should precede `ModeSource` and mode-monitor workflows
+  - second-order subpixel smoothing depends on the anisotropic material representation and update path already working
+  - logging and convergence behavior are first-class runtime deliverables, not incidental byproducts
+  - kernel/runtime support must be explicit for materials, boundaries, sources, monitors, and postprocessing rather than implied by API support
+
+## Working Memory
+
+# Phase 1 Maxwell Solver Loop Working Memory
+
+Use this file for cumulative findings, reusable facts, decisions, and cross-task notes.
+
+Keep it concise. Do not repeat information already captured in `loop.prompt.md` or other local files.
+Prefer referencing local file paths and distilled takeaways instead of copying long excerpts.
+
+Suggested sections:
+
+- Facts
+- Decisions
+- Open Questions
+- Reusable References
+- Task Handoffs
+
+## Facts
+
+- `task-001` starts from an effectively empty repo with no `src/` package or tooling.
+- `phase1/feature-checklist.md` is now mirrored in code via `src/autofdtd/planning.py` so later tasks can reuse a local feature/status source instead of reparsing markdown.
+- `src/autofdtd/core/containers.py` now holds the first frozen tagged container models for `Structure`, `Scene`, and `Simulation`; `src/autofdtd/api/simulation.py` re-exports them as the public API surface.
+- `src/autofdtd/ir/models.py` now defines the first versioned execution IR, with `ComponentIR`, `StructureIR`, `SceneIR`, `SimulationIR`, and `ExecutionPackageIR` as the transport contract.
+- `src/autofdtd/core/validation.py` now centralizes Phase 1 normalization rules, unsupported-feature checks, primitive geometry sanity checks, simulation-bound checks, and zero-dimension boundary coercion.
+- `src/autofdtd/core/models.py` now provides the shared frozen model contract with `model_tag()`, `copy_update()`, `json_ready()`, and stable JSON serialization helpers reused by both public containers and IR models.
+- `src/autofdtd/geometry/primitives.py` now provides typed `Box`, `Sphere`, and `Cylinder` public models plus `GeometryTransform`, bounds, point-containment, and translation helpers.
+- `src/autofdtd/ir/models.py` now lowers primitive geometries into typed `BoxIR`, `SphereIR`, and `CylinderIR` payloads with explicit bounds and scene-compilation transform metadata.
+- `src/autofdtd/geometry/polyslab.py` now provides a typed `PolySlab` model for simple-polygon extrusions with bounds, containment, translation, and simple-polygon validation; `src/autofdtd/ir/models.py` lowers it into `PolySlabIR`.
+- `src/autofdtd/geometry/composite.py` now provides `GeometryGroup`, `Transformed`, `GeometryArray`, and a narrow `ClipOperation` subset (`union`, `intersection`, `difference`) for Phase 1 scene construction.
+- `GeometryTransform` now supports explicit rigid-transform composition plus translation, rotation, reflection, and conservative transformed-bounds evaluation for wrapper lowering and scene queries.
+- `src/autofdtd/ir/models.py` now carries typed wrapper IR via `GeometryGroupIR`, `TransformedIR`, and `ClipOperationIR`.
+- `GeometryArray` uses Tidy3D-style `geometry + offsets + transforms` public semantics, but Phase 1 keeps transforms rigid and linear-only and lowers arrays into explicit grouped instances for IR and overlap evaluation.
+- `Scene.structure_precedence()` and `Scene.resolve_structure_stack_at_point()` now expose concrete overlap order with `source_index`, `resolved_priority`, and `precedence_rank`, and `StructureIR` carries the same metadata for later compiler stages.
+- `src/autofdtd/grid/specs.py` now provides `AutoGrid`, `GridRefinement`, and `LayerRefinementSpec` in addition to the manual grid models; the current AutoGrid path is wavelength-driven, axis-local, and only applies axis-aligned layer refinement metadata.
+- `src/autofdtd/ir/models.py` now lowers `GridSpec` into typed grid IR with per-axis spec payloads, layer-refinement metadata, and resolved boundary and shape metadata, so later compiler work can consume inspectable discretization state instead of reparsing public models.
+- `src/autofdtd/grid/subpixel.py` now provides the first explicit subpixel policy layer with `SubpixelSpec`, `Staircasing`, and `PolarizedAveraging`, plus Tidy3D-style `bool` coercion for `Simulation.subpixel`.
+- `src/autofdtd/ir/models.py` now lowers subpixel settings into `SubpixelSpecIR` with explicit averaging-vs-staircasing targets and an anisotropic-materialization flag for later scene compilation.
+- `src/autofdtd/materials/isotropic.py` now provides typed `Medium`, `PECMedium`, and `PMCMedium` public models with validation and normalization helpers; `src/autofdtd/ir/models.py` lowers them into typed `MediumIR`, `PECMediumIR`, and `PMCMediumIR`.
+- `src/autofdtd/compiler/materials.py` now compiles isotropic constitutive coefficients, exposes scene-point medium sampling, and keeps explicit clamp-zero modes for `PECMedium` and `PMCMedium`.
+- `src/autofdtd/kernels/materials.py` now provides the first staged constitutive-update helpers with a NumPy path and optional Warp-availability reporting.
+
+## Decisions
+
+- Reserve subsystem namespaces now: `api`, `core`, `geometry`, `materials`, `boundaries`, `sources`, `monitors`, `grid`, `modes`, `ir`, `compiler`, `runtime`, `kernels`, `diagnostics`, `examples`.
+- Use `hatchling` with a `src/` layout and ship a small CLI (`autofdtd-feature-matrix`) so the scaffold has a concrete install/runtime smoke target before solver code exists.
+- Keep this task focused on packaging, docs, and planning metadata; full tagged models remain for `task-002` and `task-003`.
+- Model ordered overlap explicitly through `Scene.structures_in_resolution_order()`, sorting by resolved priority and then insertion order so later structures still win ties during sequential materialization.
+- Keep the initial container layer serialization-light: `to_payload()`, `to_json_text()`, and `write_json()` are enough for snapshots and handoff, while `task-005` can generalize the shared model base.
+- Use a generic family-tagged component envelope in the IR so Phase 1 can package realistic simulations before every feature family has concrete typed IR classes; later tasks can specialize payloads without changing bundle shape.
+- Bundle packaging is directory-based: `manifest.json` points at a hashed `simulation.json` entrypoint, avoiding self-referential manifest hashing while staying suitable for remote upload or local caching.
+- Core validation is checklist-driven: implemented feature tags pass, deferred or rejected tags fail early with explicit errors, and known primitive geometry payloads validate only when enough fields are present so placeholder tagged dicts can survive until their concrete family tasks land.
+- Shared model behavior should live in `autofdtd.core.models`; public API and IR classes should subclass it rather than duplicating serialization or copy helpers in subsystem-local base classes.
+- Primitive geometry stays axis-aligned in Phase 1 public models; scene-compilation transforms are still explicit so later `Transformed` and grouped-geometry tasks can lower onto the same contract instead of rewriting primitive handling.
+- Structure precedence is now inspectable with `Scene.resolve_structure_at_point()`, which mirrors materialization order by applying primitive containment checks in resolved-priority order.
+- Keep `GeometryArray` as a public wrapper only; repeated placements lower into ordinary grouped and transformed instances so runtime/compiler code can treat arrays as pre-expanded ordered geometry.
+- Phase 1 `PolySlab` scope is intentionally limited to constant-cross-section extrusions of simple polygons on principal axes; non-zero `dilation` or `sidewall_angle`, self-intersections, and curved or boolean polygon features must fail explicitly until later geometry tasks land.
+- Keep the feature ledger conservative for clipping: `ClipOperation` remains a deferred family in `planning.py`, but geometry validation explicitly allows the implemented subset and rejects unsupported boolean ops with clear errors.
+- Phase 1 transform wrappers are rigid only; free-form affine matrices and exact boolean meshing remain out of scope even though the public model now supports grouped and transformed composition.
+- Keep the top-level simulation grid surface strict: `grid_spec` must be a `GridSpec`, `AutoGrid` requires `GridSpec.wavelength`, and `QuasiUniformGrid` remains an explicit deferred error.
+- Phase 1 AutoGrid is deliberately narrow: derive a vacuum baseline from wavelength and domain size, discretize piecewise with a simple `max_scale` grading pass, and limit refinement inputs to `LayerRefinementSpec` body and bound hints rather than full geometry-driven meshing.
+- Keep Phase 1 subpixel support narrow and explicit: dielectric interfaces may use `PolarizedAveraging` or `Staircasing`, while metal, PEC, PMC, and lossy-metal interfaces stay staircasing-only until anisotropic media and conformal policies land.
+- Treat PEC and PMC as explicit constitutive clamp modes in coefficient compilation and runtime helpers instead of pretending they are extremely lossy ordinary media.
+
+## Task Handoffs
+
+- `task-003` should add versioned IR models under `autofdtd.ir` without coupling them to the public API module layout; it can treat `Simulation.to_payload()` as an interim handoff format, not the final IR contract.
+- Later geometry, material, source, and monitor tasks can plug concrete tagged models into the existing container fields without changing the ordered-container semantics.
+- `task-004` and `task-005` can reuse `ComponentIR.payload` plus the shared IR schema version constants instead of inventing another transport shape.
+- Later geometry, source, monitor, boundary, and grid tasks should route new object models through `autofdtd.core.validation.normalize_component()` or extend its equivalents instead of scattering policy checks across each family.
+- Later compiler work can rely on wrapper IR bounds as conservative planning envelopes; exact voxelization or boolean rasterization still belongs in scene compilation rather than the public geometry layer.
+- Later compiler work can consume `StructureIR.source_index` plus `StructureIR.precedence_rank` directly when building ordered region materialization plans or conflict diagnostics.
+- Later grid/compiler tasks should treat `LayerRefinementSpecIR` as planning metadata only; corner finding, snapping-point localization, and structure-derived meshing still need a separate scene-aware meshing pass.
+- Material and compiler tasks should consume `SubpixelSpecIR.averaging_targets` and `requires_anisotropic_materialization` directly instead of re-deriving which interface families need tensor-valued effective media.
+- Later runtime and chunk-planning tasks can treat `IsotropicMaterialCoefficients` plus `ConstitutiveMode` as the stable baseline constitutive contract before dispersive and anisotropic state is added.
+
+## Current Task
+
+Task ID: task-014
+Title: Implement PoleResidue medium support with coefficient prep and update kernels
+Success: Support PoleResidue-style dispersive media with explicit API and IR models, coefficient preparation, auxiliary-state handling, update-kernel support, and representative tests.
+Notes: Keep PoleResidue separate because it is the most general dispersive family and often subsumes the others conceptually.

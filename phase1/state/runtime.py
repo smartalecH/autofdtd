@@ -140,11 +140,23 @@ def append_console(console_path: Path, message: str = "") -> None:
         fh.write(message + "\n")
 
 
+def is_warning_line(stripped: str) -> bool:
+    return stripped.lower().startswith("warning:")
+
+
+def is_progress_line(stripped: str) -> bool:
+    return stripped.startswith("  →") or stripped.startswith("  •")
+
+
 def should_resume_after_prompt_echo(stripped: str) -> bool:
     return (
-        stripped.startswith("mcp startup:")
+        stripped == "exec"
+        or stripped.startswith("mcp startup:")
         or stripped.startswith("ERROR:")
-        or stripped.startswith("Warning:")
+        or is_warning_line(stripped)
+        or is_progress_line(stripped)
+        or stripped.startswith("OpenAI Codex")
+        or stripped.startswith("--------")
         or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))
         or stripped in {"assistant", "tool", "reasoning", "final"}
     )
@@ -155,7 +167,8 @@ def is_top_level_stream_marker(stripped: str) -> bool:
         stripped == "exec"
         or stripped.startswith("mcp startup:")
         or stripped.startswith("ERROR:")
-        or stripped.startswith("Warning:")
+        or is_warning_line(stripped)
+        or is_progress_line(stripped)
         or stripped.startswith("OpenAI Codex")
         or stripped.startswith("--------")
         or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))

@@ -4,139 +4,139 @@ Drive Phase 1 of autofdtd from an almost-empty repository to a credible, pip-ins
 
 Statuses: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `BLOCKED`
 
-## [QUEUED] task-001 - Create the package, tooling, and docs scaffold around the planned feature surface
+## [COMPLETED] task-001 - Create the package, tooling, and docs scaffold around the planned feature surface
 Success: Create a pip-installable src-layout package with module namespaces, development tooling, test entrypoints, and docs scaffolding that are aligned with the feature checklist and subsystem boundaries.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-001-attempt-001
+Last Duration: 335.1s
+Completed At: 2026-04-06T02:09:22Z
 Notes: The Tidy3D feature checklist is already part of prep and should be consumed here rather than regenerated.
 
-## [QUEUED] task-002 - Implement the tagged core Simulation, Scene, and Structure data model
+## [COMPLETED] task-002 - Implement the tagged core Simulation, Scene, and Structure data model
 Success: Provide the foundational public and IR-facing container models for Simulation, Scene, and Structure, including ordered structure semantics, names, priority behavior, and serialization scaffolding.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-002-attempt-001
+Last Duration: 318.3s
+Completed At: 2026-04-06T02:14:41Z
 Notes: This is the container backbone that many later feature tasks depend on.
 
-## [QUEUED] task-003 - Define the tagged execution IR and serialization contract
+## [COMPLETED] task-003 - Define the tagged execution IR and serialization contract
 Success: Land an inspectable, versioned IR schema and serialization plan that can represent realistic Phase 1 simulations independently of the public API and is suitable for local or remote execution packaging.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-003-attempt-001
+Last Duration: 249.2s
+Completed At: 2026-04-06T02:18:50Z
 Notes: The IR should be specific enough to support later feature tasks without redesign.
 
-## [QUEUED] task-004 - Implement core normalization and validation behavior
+## [COMPLETED] task-004 - Implement core normalization and validation behavior
 Success: Provide validation and normalization passes for names, bounds, basic shape constraints, unsupported-feature errors, and selected warn-and-coerce behaviors that align with the feature checklist.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-004-attempt-001
+Last Duration: 499.7s
+Completed At: 2026-04-06T02:27:10Z
 Notes: This task should make later feature work safer instead of treating validation as cleanup at the end.
 
-## [QUEUED] task-005 - Implement shared model-base and serialization helpers
+## [COMPLETED] task-005 - Implement shared model-base and serialization helpers
 Success: Provide the shared base-model, tagging, copy-or-update, and serialization helpers needed by the public API and IR layers so later feature tasks build on a common contract.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-005-attempt-001
+Last Duration: 164.9s
+Completed At: 2026-04-06T02:29:54Z
 Notes: This keeps tagging and serialization from being reimplemented ad hoc in every feature family.
 
-## [QUEUED] task-006 - Implement primitive geometry support for Box, Sphere, and Cylinder
+## [COMPLETED] task-006 - Implement primitive geometry support for Box, Sphere, and Cylinder
 Success: Provide public and IR representations plus tests for Box, Sphere, and Cylinder geometries, including bounds, transforms needed for scene compilation, and precedence interaction inside structures.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-006-attempt-001
+Last Duration: 406.1s
+Completed At: 2026-04-06T02:36:41Z
 Notes: Start with the simplest Tidy3D geometry primitives first.
 
-## [QUEUED] task-007 - Implement PolySlab and polygon-driven geometry support
+## [COMPLETED] task-007 - Implement PolySlab and polygon-driven geometry support
 Success: Support PolySlab-style polygon extrusion geometry with explicit scope and limitation documentation, plus tests that cover representative planar photonics cases.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-007-attempt-001
+Last Duration: 460.5s
+Completed At: 2026-04-06T02:44:21Z
 Notes: This is one of the most important geometry families for Tidy3D-style compatibility.
 
-## [QUEUED] task-008 - Implement geometry grouping, transforms, and clip-style wrappers
+## [COMPLETED] task-008 - Implement geometry grouping, transforms, and clip-style wrappers
 Success: Provide GeometryGroup-style composition plus the minimum transform and clip operation support needed for credible Phase 1 scene construction.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-008-attempt-001
+Last Duration: 531.5s
+Completed At: 2026-04-06T02:53:13Z
 Notes: This task should turn individual primitives into useful scene-building blocks.
 
-## [QUEUED] task-009 - Implement geometry arrays, precedence, and repeated placement semantics
+## [COMPLETED] task-009 - Implement geometry arrays, precedence, and repeated placement semantics
 Success: Support repeated or array-style geometry placement and explicit precedence semantics for ordered structures with tests that verify overlap behavior.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-009-attempt-001
+Last Duration: 378.3s
+Completed At: 2026-04-06T02:59:31Z
 Notes: This is where structure ordering becomes concrete.
 
-## [QUEUED] task-010 - Implement grid controls for UniformGrid, CustomGrid, and GridSpec core paths
+## [COMPLETED] task-010 - Implement grid controls for UniformGrid, CustomGrid, and GridSpec core paths
 Success: Provide the core grid specification surface needed for Phase 1 simulations, including uniform grids, custom boundaries or custom grids, and GridSpec-style composition.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-010-attempt-001
+Last Duration: 678.8s
+Completed At: 2026-04-06T03:10:50Z
 Notes: Grid support should be concrete enough to drive later discretization and mode-solver work.
 
-## [QUEUED] task-011 - Implement AutoGrid and refinement-spec planning surfaces
+## [COMPLETED] task-011 - Implement AutoGrid and refinement-spec planning surfaces
 Success: Support an initial AutoGrid-style and refinement-spec surface with clear limitations and lowering behavior, even if the first meshing policy is simpler than Tidy3D's full behavior.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-011-attempt-001
+Last Duration: 414.5s
+Completed At: 2026-04-06T03:17:44Z
 Notes: This task can begin with planning or simplified refinement behavior, but it must not be hand-wavy.
 
-## [QUEUED] task-012 - Implement SubpixelSpec and core averaging policy models
+## [COMPLETED] task-012 - Implement SubpixelSpec and core averaging policy models
 Success: Provide SubpixelSpec-style controls and the core averaging or staircasing policy representations needed to drive geometry materialization behavior.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-012-attempt-001
+Last Duration: 629.8s
+Completed At: 2026-04-06T03:28:14Z
 Notes: This task is about policy modeling before the heavier compiler behavior lands.
 
-## [QUEUED] task-013 - Implement isotropic Medium, PECMedium, and PMCMedium with coefficient compilation and constitutive kernels
+## [COMPLETED] task-013 - Implement isotropic Medium, PECMedium, and PMCMedium with coefficient compilation and constitutive kernels
 Success: Support the foundational isotropic material family, including plain Medium and perfect-conductor medium variants, with tests for serialization, validation, structure application, coefficient preparation, and the corresponding constitutive-update kernel paths.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-013-attempt-001
+Last Duration: 589.0s
+Completed At: 2026-04-06T03:38:03Z
 Notes: These are the baseline material types many later tasks assume exist.
 
-## [QUEUED] task-014 - Implement PoleResidue medium support with coefficient prep and update kernels
+## [COMPLETED] task-014 - Implement PoleResidue medium support with coefficient prep and update kernels
 Success: Support PoleResidue-style dispersive media with explicit API and IR models, coefficient preparation, auxiliary-state handling, update-kernel support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-014-attempt-001
+Last Duration: 522.2s
+Completed At: 2026-04-06T03:46:45Z
 Notes: Keep PoleResidue separate because it is the most general dispersive family and often subsumes the others conceptually.
 
-## [QUEUED] task-015 - Implement Sellmeier medium support with coefficient prep and update kernels
+## [COMPLETED] task-015 - Implement Sellmeier medium support with coefficient prep and update kernels
 Success: Support Sellmeier media or a clearly documented supported subset, including API and IR models, coefficient preparation, update-kernel support, and representative validation tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-015-attempt-001
+Last Duration: 299.6s
+Completed At: 2026-04-06T03:51:45Z
 Notes: This stays separate so optical-material support is not hidden inside a large dispersive bucket.
 
-## [QUEUED] task-016 - Implement Lorentz, Drude, and Debye medium support with update kernels
+## [COMPLETED] task-016 - Implement Lorentz, Drude, and Debye medium support with update kernels
 Success: Support Lorentz, Drude, and Debye medium families or a clearly delimited subset, including API and IR models, coefficient preparation, update-kernel support, and tests that show each family exercises the intended constitutive path.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-016-attempt-001
+Last Duration: 485.0s
+Completed At: 2026-04-06T03:59:50Z
 Notes: These families are close enough to share a task without becoming ambiguous if the tests name each family explicitly.
 
-## [QUEUED] task-017 - Implement anisotropic medium families, Medium2D policy, and anisotropic kernel support
+## [RUNNING] task-017 - Implement anisotropic medium families, Medium2D policy, and anisotropic kernel support
 Success: Support the initial anisotropic medium surface, including a clear policy for AnisotropicMedium, FullyAnisotropicMedium, and Medium2D-related behavior, with explicit tests, limitations, coefficient preparation, and anisotropic kernel support.
-Attempts: 0
-Last Run: -
-Last Duration: -
+Attempts: 18
+Last Run: task-017-attempt-018
+Last Duration: 3.4s
 Completed At: -
 Notes: This task should respect the fact that subpixel smoothing can create effective anisotropy and must land before second-order subpixel materialization is treated as implemented.
 

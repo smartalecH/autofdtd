@@ -1,0 +1,43 @@
+"""Scene compilation, normalization, and lowering namespace."""
+
+from autofdtd.compiler.materials import (
+    EPSILON_0,
+    MU_0,
+    ConstitutiveMode,
+    IsotropicMaterialCoefficients,
+    MaterialCoefficients,
+    PoleResidueMaterialCoefficients,
+    PoleResidueTermCoefficients,
+    SceneMaterialSample,
+    compile_debye_coefficients,
+    compile_drude_coefficients,
+    compile_isotropic_medium_coefficients,
+    compile_lorentz_coefficients,
+    compile_medium_coefficients,
+    compile_pole_residue_coefficients,
+    compile_scene_medium_coefficients,
+    compile_sellmeier_coefficients,
+    pole_residue_terms_as_complex,
+    sample_scene_mediums,
+)
+
+__all__ = [
+    "ConstitutiveMode",
+    "EPSILON_0",
+    "MU_0",
+    "IsotropicMaterialCoefficients",
+    "MaterialCoefficients",
+    "PoleResidueMaterialCoefficients",
+    "PoleResidueTermCoefficients",
+    "SceneMaterialSample",
+    "compile_debye_coefficients",
+    "compile_drude_coefficients",
+    "compile_medium_coefficients",
+    "compile_isotropic_medium_coefficients",
+    "compile_lorentz_coefficients",
+    "compile_pole_residue_coefficients",
+    "compile_sellmeier_coefficients",
+    "compile_scene_medium_coefficients",
+    "pole_residue_terms_as_complex",
+    "sample_scene_mediums",
+]
