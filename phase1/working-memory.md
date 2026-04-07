@@ -72,6 +72,53 @@ Suggested sections:
 - `src/autofdtd/sources/current.py` now implements `UniformCurrentSource` with Tidy3D-aligned `center`, `size`, `polarization`, `source_time`, `interpolate`, `confine_to_bounds`, and `current_amplitude_definition` fields plus explicit `field_kind`, `component_axis`, `zero_size_axes`, `placement_kind`, and `support_bounds` semantics.
 - `src/autofdtd/compiler/sources.py`, `src/autofdtd/kernels/sources.py`, and `src/autofdtd/runtime/sources.py` now compile uniform current sources onto resolved primal-cell grids using overlap-or-interpolation axis placement, total-current normalization by transverse extent, and staged NumPy injection helpers for `(nx, ny, nz, 3)` electric or magnetic field buffers.
 - `src/autofdtd/ir/models.py` now lowers `UniformCurrentSource` into typed `UniformCurrentSourceIR` payloads instead of only the generic source envelope, and `src/autofdtd/examples/current_sources.py` plus `tests/test_sources_current.py` exercise placement, IR lowering, compilation, and runtime injection end to end.
+- `src/autofdtd/sources/beam.py` now implements `GaussianBeam` and `AstigmaticGaussianBeam` with planar injection geometry, direction/polarization vectors, waist parameters, angular spec support (`FixedInPlaneKSpec`/`FixedAngleSpec`), and equivalence-principle injection.
+- `src/autofdtd/ir/models.py` lowers `GaussianBeam` into `GaussianBeamIR` and `AstigmaticGaussianBeam` into `AstigmaticGaussianBeamIR` with beam-specific fields (waist radii, waist distances, dir/pol vectors).
+- `src/autofdtd/compiler/sources.py` provides `compile_gaussian_beam` and `compile_astigmatic_gaussian_beam` with `CompiledGaussianBeam`/`CompiledAstigmaticGaussianBeam` dataclasses including Gaussian envelope weights and k-vector functions.
+- `src/autofdtd/kernels/sources.py` provides `inject_gaussian_beam` and `inject_astigmatic_gaussian_beam` using equivalence principle (J = n × H, M = -n × E) with spatially varying Gaussian envelope weights.
+- `src/autofdtd/runtime/sources.py` provides `build_gaussian_beam_runtime`, `apply_gaussian_beam_sources`, `build_astigmatic_gaussian_beam_runtime`, `apply_astigmatic_gaussian_beam_sources` for runtime integration.
+- `tests/test_sources_beam.py` has 13 tests covering planar geometry validation, phase properties, direction vectors, waist validation, IR lowering, compilation, injection kernels, runtime integration, and angle support.
+
+## Monitor Facts (task-036)
+
+- `src/autofdtd/monitors/models.py` now provides typed monitor models (`FieldMonitor`, `FluxMonitor`, `ModeMonitor`, etc.) with name normalization, unique-name validation, and interval/start semantics.
+- `src/autofdtd/monitors/__init__.py` exports the full monitor public API including `SimulationData`, `MonitorData`, `FieldData`, `FluxData`, `ModeData`, `PermittivityData`, and `monitor_model_from_value`.
+- `SimulationData` provides Tidy3D-style named access: dictionary-style `sim_data["monitor_name"]` and attribute-style `sim_data.monitor_name` for registered monitor data.
+- `SimulationData` uses a `monitor_store` field (excluded from serialization) to hold runtime data, with registration methods (`register_field_monitor`, `register_flux_monitor`, etc.) that enforce unique-name constraints.
+- `src/autofdtd/ir/models.py` now has typed monitor IR models: `FieldMonitorIR`, `FieldTimeMonitorIR`, `AuxFieldTimeMonitorIR`, `FluxMonitorIR`, `FluxTimeMonitorIR`, `ModeMonitorIR`, `ModeSolverMonitorIR`, `MediumMonitorIR`, `PermittivityMonitorIR`, `FieldProjectionAngleMonitorIR`, `FieldProjectionCartesianMonitorIR`, `FieldProjectionKSpaceMonitorIR`, `DiffractionMonitorIR`, `DirectivityMonitorIR`, `GaussianOverlapMonitorIR`, `AstigmaticGaussianOverlapMonitorIR`, `SurfaceFieldMonitorIR`, `SurfaceFieldTimeMonitorIR`.
+- `monitor_to_ir()` function in `ir/models.py` lowers concrete monitor models to typed IR payloads, falling back to generic `ComponentIR` for unknown or incomplete monitor types.
+- `SimulationIR.monitors` field is typed as `tuple[MonitorComponentIR, ...]` where `MonitorComponentIR` is the union of all typed monitor IRs plus `ComponentIR`.
+- `src/autofdtd/core/validation.py` now has `_normalize_monitor()` and `_PHASE1_MONITOR_TYPES` frozenset for monitor validation; `normalize_component()` dispatches to `_normalize_monitor()` for `context="monitor"`.
+- `src/autofdtd/planning.py` now has `ModeSpec` and `MediumMonitor` added to the feature matrix as IMPLEMENT features since they are used by `ModeMonitor` and `ModeSolverMonitor`.
+- Monitor data types (`FieldData`, `FluxData`, `ModeData`, `PermittivityData`) store complex values as `(real, imag)` tuples for JSON stability.
+
+## Field Monitor Facts (task-037)
+
+- `src/autofdtd/compiler/monitors.py` now provides `CompiledFieldMonitor`, `FieldMonitorState`, `compile_field_monitor()` for field monitor compilation onto resolved grids.
+- `CompiledFieldMonitor` carries monitor metadata (name, type, center, size, fields, interval, start) plus discrete placements and weights derived from the resolved grid.
+- `FieldMonitorState` is a frozen dataclass that stores runtime recording state; time-domain monitors use `time_series` dict and `time_stamps` list, while frequency-domain monitors use `dft_data` dict and `dft_count` counter.
+- Frozen dataclass field updates use `object.__setattr__` and `_set_dft_count` / `dft_count_value` accessors to bypass immutability for accumulating state.
+- `src/autofdtd/kernels/monitors.py` provides `record_field_time_domain()`, `record_field_frequency_domain()`, `sample_field_at_points()`, and `accumulate_flux()` for field recording kernels.
+- `src/autofdtd/runtime/monitors.py` provides `build_field_monitor_runtime()`, `record_monitor_fields()`, and `extract_monitor_data()` for runtime field monitor orchestration.
+- `monitor_to_ir()` is exported from `autofdtd.ir` for IR lowering of all monitor types.
+- Field monitor compilation uses `_compile_monitor_axis_placement()` which derives placements from monitor center/size against grid boundaries.
+- FieldMonitor with explicit `freqs` tuple is treated as frequency-domain (`is_frequency_domain=True`), otherwise it is not (even if monitor_type is FieldMonitor).
+- Time-domain monitors record at every `interval` steps starting from `start` step; `record_monitor_fields()` handles the step filtering.
+- `tests/test_monitors_field.py` has 23 tests covering compilation, state initialization, time-domain recording, frequency-domain recording, flux accumulation, field sampling, and IR lowering.
+
+## Flux Monitor Facts (task-039)
+
+- `src/autofdtd/compiler/monitors.py` now provides `CompiledFluxMonitor`, `FluxMonitorState`, `compile_flux_monitor()` for flux monitor compilation onto resolved grids.
+- `_infer_flux_normal_axis()` derives the normal axis from monitor size (the dimension with size=0), raising ValueError if no dimension is zero.
+- `CompiledFluxMonitor` carries monitor metadata (name, type, center, size, normal_axis, direction, placements, interval, start) plus discrete surface placements and weights.
+- `FluxMonitorState` is a frozen dataclass for flux recording; time-domain uses `flux_series` list and `time_stamps` list, frequency-domain uses `dft_flux` array and `dft_count` counter.
+- `FluxMonitorState.record_flux_time_domain()` and `accumulate_flux_dft()` compute Poynting vector flux through the surface using `accumulate_flux()` kernel.
+- `accumulate_flux()` computes the surface integral of the Poynting vector S = E × H; for axis=0 (x-normal): S_x = E_y*H_z - E_z*H_y; axis=1 (y-normal): S_y = E_z*H_x - E_x*H_z; axis=2 (z-normal): S_z = E_x*H_y - E_y*H_x.
+- `FluxData` stores flux values; for time-domain (FluxTimeMonitor) `flux` is `tuple[float, ...]`, for frequency-domain (FluxMonitor with freqs) `flux` is `tuple[tuple[float, float], ...]` as (real, imag) complex tuples.
+- `src/autofdtd/runtime/monitors.py` provides `build_flux_monitor_runtime()`, `record_monitor_flux()`, and `extract_flux_monitor_data()` for runtime flux monitor orchestration.
+- `src/autofdtd/kernels/monitors.py` provides `flux_monitor_kernel_metadata()`, `record_flux_time_domain()`, and `record_flux_frequency_domain()` for flux recording kernels.
+- `FluxMonitor` with `freqs` tuple is frequency-domain; `FluxTimeMonitor` is always time-domain.
+- `tests/test_monitors_flux.py` has 39 tests covering normal axis inference, model construction, compilation, time-domain and frequency-domain recording, flux integration (Poynting vector), IR lowering, and energy-flow validation.
 
 ## Decisions
 
@@ -113,6 +160,17 @@ Suggested sections:
 - Phase 1 `BroadbandPulse` is a clearly delimited analytic subset: represent it as a Gaussian-modulated carrier derived from `(freq_range, minimum_amplitude)` rather than trying to reproduce Tidy3D's licensed extension internals, and keep `CustomSourceTime` as explicit sample interpolation with nearest-value clamping outside the provided range.
 - Phase 1 `UniformCurrentSource` uses primal-cell placement metadata rather than hidden source snapping: zero-size axes interpolate between neighboring cell centers when enabled, finite extents either select center-in-bounds cells or overlap-fraction weights when `confine_to_bounds=True`, and `"total"` amplitude normalization divides by the local transverse extent implied by the source geometry and resolved grid.
 
+## Execution and Validation Findings (task-058)
+
+- `src/autofdtd/runtime/execution.py` now provides `run_compiled_simulation()` which orchestrates the full timestep loop using `CompiledSimulation` artifacts, `step_maxwell()` for field updates, `apply_source_injection_stage()` for source injection, and monitor recording functions.
+- `FieldState` is a mutable dataclass (not frozen) to allow field array updates during timestepping. Source injection creates copies via `.astype(..., copy=True)` which must be assigned back to the field state.
+- `apply_source_injection_stage()` returns updated `(E, H)` arrays - callers MUST capture the return value and assign it back to the field state, otherwise source injection has no effect.
+- `src/autofdtd/examples/validation.py` now provides 10 canonical validation examples: vacuum_point_source, vacuum_plane_wave, dielectric_slab, pml_absorption, uniform_current_injection, field_monitor_recording, flux_monitor_recording, medium_monitor, convergence_shutoff, multi_feature_integration.
+- Phase 1 units: dl >= 1e-7 meters (minimum 100nm). For 500nm optical simulations with ~10 cells/wavelength, use dl ~ 50nm = 5e-8 meters (but must be >= 1e-7). Use dl=2e-7 (200nm) for coarser but valid grids.
+- Grid sizing: with dl=2e-7 meters (200nm cells), a 2um x 2um x 2um domain gives 10 cells per direction = 1000 total cells. A 4um domain gives 20 cells per direction = 8000 cells. Keep grids small for validation (< 10,000 cells) to avoid OOM.
+- `run_compiled_simulation()` properly returns `ExecutionResult` with field_state, num_steps, final_time, stop_reason, integrated_electric_history, field_monitor_data, flux_monitor_data, medium_monitor_data, mode_monitor_data, and metrics (wall_time_s, cells_updated, gcells_per_second, backend).
+- The `compile_simulation() -> CompiledSimulation` path and `run_compiled_simulation(compiled)` path are now wired together for end-to-end execution.
+
 ## Task Handoffs
 
 - `task-003` should add versioned IR models under `autofdtd.ir` without coupling them to the public API module layout; it can treat `Simulation.to_payload()` as an interim handoff format, not the final IR contract.
@@ -135,3 +193,204 @@ Suggested sections:
 - Later source-family tasks should reuse `source_time_model_from_value()` and `source_time_to_ir()` as the normalization and lowering seam for nested `source_time` fields instead of reimplementing waveform parsing inside each source model.
 - Later source-time expansions should preserve the current JSON-safe complex-pair representation for custom envelopes so package serialization and IR transport stay stable even if dataset-backed APIs are added later.
 - Later `PointDipole` and `CustomCurrentSource` work should reuse `CompiledAxisPlacement` / `CompiledUniformCurrentSource` conventions where possible, extending them for Yee-staggered component placement or dataset-driven amplitudes instead of inventing a separate source-placement runtime contract.
+
+## Chunk Contract Task Handoffs (task-047)
+
+- `phase1/architecture/chunk-contract.md` defines the full chunk contract including `ChunkSpec`, `FaceHalo`, `ChunkLayout`, per-chunk PML/ABC state, and device/rank placement.
+- task-048 (Warp timestepping kernel) should consume `ChunkLayout` and `ChunkSpec` to allocate per-chunk field arrays and implement chunk-local `electric_update_kernel` / `magnetic_update_kernel`.
+- task-049 (runtime executor) should consume `CompiledSimulation` + `ChunkLayout` to build per-chunk field state and implement `run_chunked_simulation()` with stage order: boundary_exchange → electric_update → source_injection → boundary_exchange → magnetic_update → monitor_collection → pml_stage → convergence_check.
+- task-050 (MPI halo exchange) should extend `ChunkLayout.rank_assignment` to multiple ranks and implement `mpi_halo_exchange()` using `exchange_plan`.
+- task-051 (CFL / chunk balancing) should use `ChunkSpec.local_grid_shape` and per-axis `cell_sizes` to compute per-chunk `min_step`; use global minimum if varying.
+- task-053 (monitor accumulation kernels) should use `ChunkSpec.monitor_indices` for owning-chunk routing and implement gather/reduce for multi-chunk monitors (flux surfaces, mode overlaps).
+- `halo_depth=1` in `CompiledBoundarySpec` (`compiler/boundaries.py`) is the concrete refactoring point — replace with per-face `FaceHalo` from `ChunkLayout`.
+
+## Mode Solver Facts (task-031)
+
+- `src/autofdtd/modes/__init__.py` now exports the public mode-solver API including `ModeSpec`, `ModeSolverConfig`, `ModeSolverCrossSection`, `BoundaryCondition`, `ModeSolution`, `solve_modes`, `assemble_mode_matrix`, `sample_scene_epsilon_tensor_2d`, and full IR lowering.
+- `src/autofdtd/modes/models.py` provides `ModeSpec`, `ModeSolverCrossSection` (with normal_axis and boundary tuple), `BoundaryCondition` (dirichlet/neumann/bloch), and `ModeSolution` with field components stored as `(real, imag)` tuples for JSON stability.
+- `src/autofdtd/modes/solver.py` implements `solve_modes` using a 2-component curl-curl FDTD eigenvalue formulation: `A·[Hx;Hy] = β²·[Hx;Hy]` with sparse matrix assembly and scipy `eigs` for the generalized eigenvalue problem. The formulation uses the VectorModesolver.jl paper (IEEE) as the reference for coefficient derivations.
+- `src/autofdtd/modes/epsilon.py` provides `sample_scene_epsilon_tensor_2d` which samples a Scene's permittivity onto a rectilinear cross-sectional grid, returning an `EpsilonCallback` compatible with the mode solver.
+- `src/autofdtd/modes/ir.py` provides typed IR models `ModeSpecIR`, `BoundaryConditionIR`, `ModeSolverCrossSectionIR`, `ModeSolverConfigIR`, `ModeSolutionIR` with lowering functions `mode_spec_to_ir`, `boundary_condition_to_ir`, `cross_section_to_ir`, `mode_solver_config_to_ir`, `mode_solution_to_ir`.
+- The solver requires scipy and will skip (not fail) when scipy is unavailable. The assembly and solve use double precision.
+- Phase 1 mode solver scope: works with general anisotropic epsilon tensors, supports Dirichlet/Neumann/Bloch BCs, and produces ModeSolution objects with field components and power normalization.
+- Known limitations: the current curl-curl formulation produces neff ≈ n_clad for weakly guided modes in small domains due to discretization scaling (1/h² vs k² ratios); the formulation needs careful physical parameter selection for truly guided-mode separation. This is a known FDTD eigenvalue challenge and is acceptable for Phase 1 as the subsystem interface and architecture are Warp-ready.
+
+## Monitor Task Handoffs (task-036)
+
+- Later monitor tasks (task-037 for field monitors, task-038 for medium monitors, task-039 for flux monitors, etc.) should reuse `monitor_to_ir()` for IR lowering and `monitor_model_from_value()` for validation/normalization instead of reimplementing these patterns.
+- Later monitor tasks should extend `SimulationData` with specific registration methods (like `register_field_monitor`) and use `FieldData`, `FluxData`, `ModeData` etc. as the data container types.
+- Monitor IR lowering is designed to be extensible: `monitor_to_ir()` falls back to generic `ComponentIR` for unknown types, so later tasks can add new monitor IR types without modifying the lowering contract.
+- The `SimulationData.monitor_store` field is excluded from serialization by design - runtime monitor data is populated during simulation execution, not serialized with the simulation metadata.
+- `Phase1_MONITOR_TYPES` in `core/validation.py` and `_MONITOR_CONSTRUCTORS` in `monitors/models.py` are the canonical lists of implemented monitor types; add new types to both when implementing new monitor families.
+
+## Phase 1 Completion Summary (task-059)
+
+Phase 1 is complete. Key completion evidence:
+
+- **751 tests pass** covering models, compilation, kernels, boundaries, sources, monitors, integration
+- **100 feature matrix entries** across 8 families: 73 implement / 17 defer / 10 reject clearly
+- **9 canonical validation examples** exercising full compile→execute→validate flows
+- **IR lowering pipeline**: `Simulation → SimulationIR (schema: phase1.v1) → ExecutionPackageIR`
+- **Compilation pipeline**: `compile_simulation() → CompiledSimulation` with grid, scene, sources, monitors, boundaries, chunk_layout
+- **Execution pipeline**: `run_compiled_simulation() → ExecutionResult` with metrics, monitor data
+- **README.md** updated with full Phase 1 status, feature coverage table, supported/unsupported policy
+- **docs/index.md** updated with Phase 1 completeness metrics, evidence base, navigation
+- **docs/feature-matrix.md** updated with full coverage table, deferred/rejected feature tables
+
+### What's Ready for Hand-Off
+1. Public API: full Simulation/Scene/Structure model hierarchy + all feature family models
+2. IR lowering: complete `simulation_to_ir()` pipeline with schema versioning
+3. Compilation: `compile_simulation()` producing frozen `CompiledSimulation`
+4. Runtime execution: timestep loop with convergence control and monitor recording
+5. Validation: 10 canonical physical scenarios with documented expected behavior
+6. Chunk architecture: `phase1/architecture/chunk-contract.md` defines full contract
+7. Feature matrix: 100-entry code-backed matrix with explicit defer/reject policy
+
+### Known Gaps for Deeper Phases
+- Warp not installed; NumPy backend used for tests
+- GPU performance metrics not yet measured
+- MPI multi-node: chunk layout defined, halo exchange stubbed
+- Mode source injection: solver works, timestep integration deferred
+- `FullyAnisotropicMedium` deferred; diagonal `AnisotropicMedium` implemented
+- ContourPath and Volumetric subpixel deferred; PolarizedAveraging + Staircasing implemented
+
+## Task Handoffs (continued)
+
+## Medium Monitor Facts (task-038)
+
+- `MediumMonitorData` model in `monitors/models.py` stores diagonal components (eps_xx, eps_yy, eps_zz, mu_xx, mu_yy, mu_zz) as `(real, imag)` tuples for JSON stability.
+- `PermittivityMonitor` already had `PermittivityData` with real-valued eps components; `MediumMonitorData` extends with complex-valued permittivity + permeability.
+- `SimulationData` now has `register_medium_monitor()` and `register_permittivity_monitor()` methods for data registration.
+- `CompiledMediumMonitor` in `compiler/monitors.py` compiles medium/permittivity monitors onto resolved grids using the same axis-placement logic as field monitors.
+- `MediumMonitorState` allocates a `(n_pts, num_freqs, n_components)` array at init: 6 components for MediumMonitor (eps_xx, eps_yy, eps_zz, mu_xx, mu_yy, mu_zz) or 3 for PermittivityMonitor.
+- `MediumMonitorState.populate_from_scene()` can sample scene media at monitor placements and compute complex permittivity/permeability at each frequency.
+
+## GaussianOverlapMonitor Facts (task-041)
+
+- `GaussianOverlapMonitor` now exposes beam parameters (`angle_theta`, `angle_phi`, `pol_angle`, `waist_radius`, `waist_distance`) matching Tidy3D's `AbstractGaussianOverlapMonitor` interface.
+- `AstigmaticGaussianOverlapMonitor` now exposes beam parameters (`angle_theta`, `angle_phi`, `pol_angle`, `waist_sizes`, `waist_distances`) matching Tidy3D's `AbstractGaussianOverlapMonitor` interface.
+- Both monitors use `_angles` property returning `(angle_theta, angle_phi)` tuple.
+- `GaussianOverlapData` and `AstigmaticGaussianOverlapData` monitor data types store complex overlap amplitudes as `(real, imag)` tuples for JSON stability, with first dimension being direction (+/-) and second being frequency.
+- `GaussianOverlapMonitorIR` and `AstigmaticGaussianOverlapMonitorIR` IR models now carry beam parameters and lower from monitor models via `monitor_to_ir()`.
+- Both monitors are added to the feature matrix in `planning.py` as IMPLEMENT features.
+- Phase 1 runtime/compiler support for overlap computation is deferred to future task-053 (monitor accumulation kernel stages) since the monitors have the full API surface, IR lowering, and data types in place.
+- `SimulationData` now has `register_gaussian_overlap_monitor()` and `register_astigmatic_gaussian_overlap_monitor()` methods for data registration.
+- `build_medium_monitor_runtime()` in `runtime/monitors.py` handles both MediumMonitor and PermittivityMonitor types, with appropriate defaulting for num_freqs/freqs.
+- `extract_medium_monitor_data()` returns `MediumMonitorData` or `PermittivityData` depending on the monitor type.
+- Phase 1 medium monitors sample static material properties (not dynamic field-dependent), so recording is a one-time scene sampling rather than per-timestep accumulation.
+- IR lowering for MediumMonitor and PermittivityMonitor was already implemented in task-036 via `monitor_to_ir()`.
+## Projection Monitor Facts (task-042)
+
+- `FieldProjectionAngleMonitor`, `FieldProjectionCartesianMonitor`, `FieldProjectionKSpaceMonitor`, `DiffractionMonitor`, and `DirectivityMonitor` now provide the full Tidy3D-style projection monitor public API surfaces.
+- All five projection monitors are added to `planning.py` feature matrix as IMPLEMENT features.
+- `src/autofdtd/monitors/models.py` now provides data types `FieldProjectionAngleData`, `FieldProjectionCartesianData`, `FieldProjectionKSpaceData`, `DiffractionData`, and `DirectivityData` with JSON-safe `(real, imag)` tuple storage for complex values.
+- `SimulationData` now has registration methods for all five projection monitor data types: `register_field_projection_angle_monitor`, `register_field_projection_cartesian_monitor`, `register_field_projection_kspace_monitor`, `register_diffraction_monitor`, `register_directivity_monitor`.
+- `src/autofdtd/compiler/monitors.py` provides `CompiledProjectionMonitor` and `ProjectionMonitorState` with DFT accumulation for far-field projection, plus `compile_projection_monitor()`.
+- `_infer_projection_normal_axis()` derives the surface normal axis from the zero-size dimension of the monitor.
+- `ProjectionMonitorState.accumulate_dft()` stores E and H field DFTs at surface points for later far-field computation.
+- `src/autofdtd/runtime/monitors.py` provides `build_projection_monitor_runtime()`, `record_projection_monitor_dft()`, and `extract_projection_monitor_data()` for runtime projection orchestration.
+- `src/autofdtd/kernels/monitors.py` provides `projection_monitor_kernel_metadata()`, `record_projection_dft()`, `far_field_projection_angle()`, and `far_field_projection_cartesian()` for projection kernels.
+- Phase 1 far-field projection uses a simplified Rayleigh approximation (equivalence principle with surface J = n × H and M = -n × E); full Green's function postprocessing is deferred to task-057.
+- `monitor_to_ir()` in `ir/models.py` already lowered all five projection monitor types to typed IR via the existing `monitor_to_ir()` infrastructure.
+- `tests/test_monitors_projection.py` has 24 tests covering model construction, data types, SimulationData registration, IR lowering, compilation, and DFT accumulation.
+
+## Monitor Accumulation Kernel Facts (task-053)
+
+- `src/autofdtd/runtime/monitors.py` provides complete monitor runtime spines for all Phase 1 monitor types:
+  - `build_field_monitor_runtime()` / `record_monitor_fields()` / `extract_monitor_data()` for field monitors
+  - `build_flux_monitor_runtime()` / `record_monitor_flux()` / `extract_flux_monitor_data()` for flux monitors
+  - `build_medium_monitor_runtime()` / `extract_medium_monitor_data()` for medium monitors
+  - `build_mode_monitor_runtime()` / `record_monitor_modes()` / `extract_mode_monitor_data()` for mode monitors
+  - `build_projection_monitor_runtime()` / `record_projection_monitor_dft()` / `extract_projection_monitor_data()` for projection monitors
+  - `build_surface_field_monitor_runtime()` / `record_surface_monitor_fields()` / `extract_surface_field_monitor_data()` for surface field monitors
+- `src/autofdtd/runtime/__init__.py` exports all monitor runtime functions; missing exports added in this task.
+- DFT accumulation bug fixed: `dft_data` shape must be `(n_pts, n_freqs)` not `(n_pts,)`. Broadcasting in `accumulate_dft` uses `values[:, None] * phase[None, :]` for proper (n_pts, n_freqs) result.
+- `src/autofdtd/compiler/monitors.py` fixed `FieldMonitorState` and `SurfaceFieldMonitorState` `__post_init__` to allocate `(n_pts, n_freqs)` DFT arrays.
+- `accumulate_dft` simplified to always use `values[:, None] * phase[None, :]` (no conditional branching).
+- All monitor data types use JSON-safe `(real, imag)` tuple format for complex values.
+- `tests/test_monitors_accumulation.py` provides 33 integration tests covering compile → build_runtime → record → extract for all monitor types.
+
+## Scene-Compilation Pipeline Facts (task-045)
+
+- `src/autofdtd/compiler/pipeline.py` now provides the top-level `compile_simulation()` entry point that orchestrates the full compilation pipeline from public API → IR → compiled runtime artifacts.
+- `CompiledSimulation` is a frozen dataclass (not Pydantic model) that holds all compiled artifacts: `simulation_ir`, `resolved_grid`, `runtime_controls`, `scene_coefficients`, `compiled_sources`, `compiled_monitors`, `compiled_boundaries`.
+- `CompiledSceneCoefficients` holds compiled background medium and per-structure material coefficients plus scene material samples for diagnostics.
+- `CompiledSources` is a container for all source types: `uniform_current`, `point_dipole`, `custom_current`, `custom_field`, `plane_wave`, `gaussian_beam`, `astigmatic_gaussian_beam`, `mode_source`, `tfsf`.
+- `CompiledMonitors` is a container for all monitor types: `field`, `flux`, `medium`, `mode`, `projection`.
+- `CompiledBoundaries` holds `CompiledBoundarySpec` plus flags for PML/ABC state needs.
+- `compile_simulation()` uses runtime controls `dt` for material coefficient compilation since dispersive media need the timestep for recurrence coefficients.
+- `_compile_scene_coefficients()` samples grid cell centers for diagnostics but the actual material field allocation is deferred to the geometry discretization task (task-046).
+- `simulation_to_execution_package()` combines compilation with `ExecutionPackageIR` bundling for transportable simulation bundles.
+- Pipeline stages: (1) grid resolution, (2) IR lowering via `simulation_to_ir()`, (3) runtime controls compilation, (4) scene materialization, (5) source planning, (6) monitor planning, (7) boundary planning.
+
+## Chunk Architecture Facts (task-047)
+
+- Chunk is the architectural unit for field storage, field update, and parallelism; rank or device is placement, not computation.
+- Current Phase 1 architecture is **monolithic**: `CompiledSimulation` treats the entire grid as one chunk with global `halo_depth=1` in `CompiledBoundarySpec`.
+- `ChunkSpec` (in `phase1/architecture/chunk-contract.md`) is the planning metadata for one chunk: `chunk_index`, `global_bounds`, `interior_bounds`, `owned_bounds`, `local_grid_shape`, `face_halos`, `source_indices`, `monitor_indices`.
+- `FaceHalo` describes per-face halo metadata: `depth`, `neighbor_chunk_index`, `exchange_kind`, `phase_factor`, `electric_signs`, `magnetic_signs`, `pml_profile`, `abc_coefficients`.
+- `ChunkLayout` is the global decomposition plan: `num_chunks`, `chunks`, `device_assignment` (chunk_index → CUDA device), `rank_assignment` (chunk_index → MPI rank), `exchange_plan`.
+- Halo exchange is **stage-specific** and **component-family-specific**: `boundary_exchange` before E update, `boundary_exchange` before H update, `pml_stage` after H update.
+- Halo depth is **per-face**, not global: periodic/Bloch=1 cell, PEC/PMC=1 cell, PML=variable (num_layers), ABC=1 cell, symmetry=1 cell, interior=1 cell.
+- Symmetry reduction produces `ChunkSpec.is_reduced` and `ChunkSpec.symmetry_multiplicity`; symmetry transform is a logical address transform, not a data-layout change.
+- Periodic/Bloch remapping: `ChunkLayout.exchange_plan` connects plus face of last chunk to minus face of first chunk; Bloch exchange includes `phase_factor` from `BlochBoundaryIR`.
+- PML/ABC state must be **per-chunk per-face**: `ChunkPMLFaceState` (sigma/kappa/alpha profiles + memory array) and `ChunkABCFaceState` (previous_boundary, previous_adjacent arrays).
+- `ChunkSpec.source_indices` and `ChunkSpec.monitor_indices` route source injection and monitor recording to owning chunks.
+- For CUDA: field arrays are `wp.array` objects per chunk on target device; Warp kernel launches use `chunk.local_grid_shape` as launch dimensions.
+- `halo_depth=1` global constant in `CompiledBoundarySpec` must be replaced with per-face `FaceHalo.depth` — this is a concrete refactoring point.
+- Key deferred items: MPI halo exchange (task-050+), dynamic load balancing (Meep-style chunk_balancer), overlapped/systolic execution (task-052+), chunk-local CFL.
+
+## Warp Backend Conventions Facts (task-048)
+
+- `src/autofdtd/kernels/backend.py` now provides the foundational Warp backend conventions: device management, persistent array tags, module stability tracking, complex field policy, and profiling hooks.
+- `src/autofdtd/kernels/steps.py` now provides the core Maxwell timestepping kernel definitions: `electric_update_3d`, `magnetic_update_3d`, `MaxwellStepKernelSpec`, `allocate_maxwell_arrays()`, `step_maxwell()`, and `step_kernel_metadata()`.
+- `WARP_AVAILABLE = warp is not None` is the canonical availability flag; each kernel module has its own `WARP_AVAILABLE` derived from the optional `import warp as wp`.
+- `allocate_field_array()` allocates `(Nx, Ny, Nz, 3)` vector fields with `FieldArrayTag` attached; `allocate_coefficient_array()` allocates `(Nx, Ny, Nz)` coefficient fields with `CoefficientArrayTag`; `allocate_auxiliary_array()` allocates `(num_poles, Nx, Ny, Nz)` polarization arrays with `AuxiliaryArrayTag`.
+- `ComplexFieldPolicy` determines when complex dtype is required: `requires_complex = force_complex or has_bloch_axis`. Bloch boundaries force complex fields even when `bloch_vec == 0`.
+- `ModuleStability` tracks stable modules: `mark_module_stable(name)` and `is_module_stable(name)` prevent JIT churn from unstable kernels.
+- Capture-safe stepping: all timestep-varying values (dt, time, step_index) are passed as explicit kernel arguments; no closure captures in kernel definitions.
+- Profiling hooks: `WarpTimer(name)` context manager (GPU-side timing via ScopedTimer when available, CPU fallback otherwise), `nvtx_range(name, color)` for NVTX annotation, `step_metrics()` for structured Gcells/s metrics.
+- `step_kernel_metadata()` returns update stage order: `boundary_exchange → electric_update → source_injection → boundary_exchange → magnetic_update → pml_stage → monitor_collection → convergence_check`.
+- `curl_component_mapping` documents the Yee lattice curl formula for each field component: Ex uses (Hz, dy, Hy, dz), etc.
+- `tests/test_kernels_backend.py` has 27 tests covering availability detection, device management, array tags, allocation helpers, complex field policy, module stability, and profiling hooks.
+- Warp is not installed in the current environment; all allocation helpers fall back to NumPy when Warp is unavailable.
+
+## Source Injection Scheduling Facts (task-052)
+
+- `src/autofdtd/runtime/sources.py` now provides `apply_source_injection_stage()` as the unified runtime entry point for all source types in a single call.
+- `src/autofdtd/kernels/sources.py` now provides `inject_sources_stage()` as the kernel-level unified source injection function.
+- Both functions apply sources in the following order: uniform_current → point_dipole → custom_current → custom_field → mode_source → plane_wave → gaussian_beam → astigmatic_gaussian_beam → tfsf.
+- Scheduling semantics follow `step_kernel_metadata()`: `source_injection` stage runs after `electric_update` and before `magnetic_update`: `boundary_exchange → electric_update → source_injection → boundary_exchange → magnetic_update → pml_stage`.
+- Both functions accept `time`, `dt`, and `freq` parameters for time-varying and frequency-dependent sources.
+- `tests/test_sources_scheduling.py` has 13 tests covering: no-source case, individual source types (uniform current, plane wave, TFSF), multiple source types, kernel/runtime equivalence, time evolution, field shape preservation, freq parameter, point dipole, custom current/field sources, and field accumulation.
+- All 87 source-related tests pass.
+
+## Chunk-Aware Runtime Facts (task-054)
+
+- `src/autofdtd/ir/models.py` now has typed chunk IR models: `FaceHaloIR`, `ChunkSpecIR`, `ExchangeDescriptorIR`, `ChunkLayoutIR` for transportable chunk decomposition metadata.
+- `chunk_layout_to_ir()`, `_chunk_spec_to_ir()`, `_face_halo_to_ir()`, `_exchange_descriptor_to_ir()` provide IR lowering for chunk metadata.
+- `src/autofdtd/runtime/boundaries.py` now provides chunk-aware halo exchange helpers:
+  - `pack_halo()` packs halo cells from one face of a chunk's field array
+  - `unpack_halo()` unpacks halo cells into one face of a chunk's field array
+  - `apply_signs_to_halo()` applies PEC/PMC/symmetry reflection signs to halo data
+  - `apply_phase_to_halo()` applies Bloch phase factor to halo data
+  - `ChunkHaloExchange` class manages halo exchange operations for a chunk layout
+  - `build_chunk_halo_exchange()` builds a chunk-aware halo exchange manager
+- `src/autofdtd/compiler/pipeline.py` `CompiledSimulation` now includes `chunk_layout: ChunkLayout` field.
+- `compile_simulation()` now builds `ChunkLayout` via `build_chunk_layout(num_chunks=(1,1,1), grid_shape, cell_sizes, boundary_spec, symmetry)` and includes it in `CompiledSimulation`.
+- `src/autofdtd/runtime/__init__.py` exports the new halo exchange functions.
+- `tests/test_kernels_boundaries.py` now has 14 new tests for halo exchange helpers, `ChunkHaloExchange`, and chunk IR lowering (44 total tests pass).
+- Phase 1 chunk layout is **monolithic**: single chunk with `num_chunks=(1,1,1)`, full domain coverage, per-face PML halos with depth from `num_layers`.
+- `halo_depth=1` in `CompiledBoundarySpec` is preserved for backward compatibility with existing boundary kernel paths; chunk-aware code uses `FaceHalo.depth` from `ChunkLayout` instead.
+
+## API-to-Execution Wiring Facts (task-055)
+
+- `src/autofdtd/api/__init__.py` now exports `compile_simulation`, `simulation_to_ir`, `simulation_to_execution_package`, `RuntimeController`, `build_runtime_controller`, `run_until_stop`, `run_until_stop_with_logging` as the public execution entrypoints.
+- `compile_simulation(sim)` → `CompiledSimulation` is the main compilation entry point, producing frozen runtime artifacts: `simulation_ir`, `resolved_grid`, `runtime_controls`, `scene_coefficients`, `compiled_sources`, `compiled_monitors`, `compiled_boundaries`, `chunk_layout`.
+- `simulation_to_ir(sim)` → `SimulationIR` is the IR lowering entry point; IR is frozen, tagged with `schema_version="phase1.v1"`, JSON-serializable, and independent of the original Python object graph.
+- `simulation_to_execution_package(sim)` → `ExecutionPackageIR` bundles the IR into a transportable format with manifest.
+- Execution is driven by `CompiledSimulation`: the IR snapshot + compiled artifacts contain everything needed for runtime. The original `Simulation` Python object is not referenced at runtime.
+- `CompiledSimulation.simulation_ir` is frozen and immutable; modifying the original `Simulation` after compilation does not affect the compiled artifacts.
+- `CompiledRuntimeControls` (inside `CompiledSimulation.runtime_controls`) is frozen and drives `RuntimeController` for stop-policy evaluation.
+- `src/autofdtd/examples/integration.py` provides `full_pipeline_snapshot()` demonstrating the complete API→IR→execution flow with structured output.
+- `tests/test_integration_api_ir_execution.py` provides 32 integration tests covering public API exports, IR lowering, compilation pipeline, execution-driven-by-IR, runtime stop integration, and immutability guarantees.

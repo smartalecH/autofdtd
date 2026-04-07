@@ -18,6 +18,8 @@ from autofdtd.api.simulation import (
     BoundarySpec,
     ClipOperation,
     CustomAnisotropicMedium,
+    CustomCurrentSource,
+    CustomFieldSource,
     CustomMedium,
     CustomSourceTime,
     CustomGrid,
@@ -38,10 +40,12 @@ from autofdtd.api.simulation import (
     Medium,
     Medium2D,
     ModeABCBoundary,
+    ModeSpec,
     PECMedium,
     PECBoundary,
     PML,
     PMLParams,
+    PointDipole,
     Pulse,
     PMCMedium,
     PMCBoundary,
@@ -72,6 +76,15 @@ from autofdtd.api.simulation import (
     UnsupportedFeatureError,
     ContinuousWave,
 )
+from autofdtd.compiler.pipeline import compile_simulation, simulation_to_execution_package
+from autofdtd.ir import simulation_to_ir
+from autofdtd.runtime import (
+    RuntimeController,
+    build_runtime_controller,
+    run_until_stop,
+    run_until_stop_with_logging,
+)
+from autofdtd.sources.mode import ModeSource
 
 __all__ = [
     "AutoFDTDModel",
@@ -91,6 +104,8 @@ __all__ = [
     "BoundarySpec",
     "ClipOperation",
     "CustomAnisotropicMedium",
+    "CustomCurrentSource",
+    "CustomFieldSource",
     "CustomMedium",
     "CustomSourceTime",
     "CustomGrid",
@@ -111,10 +126,13 @@ __all__ = [
     "Medium",
     "Medium2D",
     "ModeABCBoundary",
+    "ModeSource",
+    "ModeSpec",
     "PECMedium",
     "PECBoundary",
     "PML",
     "PMLParams",
+    "PointDipole",
     "Pulse",
     "PMCMedium",
     "PMCBoundary",
@@ -128,6 +146,7 @@ __all__ = [
     "Periodic",
     "ResolvedGrid",
     "ResolvedGridAxis",
+    "RuntimeController",
     "Scene",
     "Simulation",
     "Sphere",
@@ -143,5 +162,11 @@ __all__ = [
     "UniformGrid",
     "UniformCurrentSource",
     "UnsupportedFeatureError",
+    "build_runtime_controller",
+    "compile_simulation",
     "ContinuousWave",
+    "run_until_stop",
+    "run_until_stop_with_logging",
+    "simulation_to_execution_package",
+    "simulation_to_ir",
 ]

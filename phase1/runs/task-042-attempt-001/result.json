@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "All 24 projection monitor tests pass. Task 042 is complete:\n\n- **5 monitor types**: `FieldProjectionAngleMonitor`, `FieldProjectionCartesianMonitor`, `FieldProjectionKSpaceMonitor`, `DiffractionMonitor`, `DirectivityMonitor`\n- **5 data types** with registration methods in `SimulationData`\n- **IR lowering** working for all projection monitor types\n- **Compilation** via `compile_projection_monitor()` producing `CompiledProjectionMonitor` and `ProjectionMonitorState`\n- **Runtime** support via `build_projection_monitor_runtime()`, `record_projection_monitor_dft()`, `extract_projection_monitor_data()`\n- **Kernels** for DFT accumulation and far-field projection (angle and Cartesian)\n- **Feature matrix** entries added to `planning.py`\n- **24 tests** in `test_monitors_projection.py` covering defaults, custom params, data types, registration, IR lowering, compilation, and DFT accumulation",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 1311602",
+  "next_action": "none"
+}

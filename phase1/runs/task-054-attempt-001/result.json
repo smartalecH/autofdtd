@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "All 632 tests pass. Task-054 is complete.\n\n## Summary\n\nTask-054 implemented chunk-aware runtime orchestration and staged halo exchange with the following deliverables:\n\n### Key Artifacts\n\n**IR Types (`src/autofdtd/ir/models.py`):**\n- `FaceHaloIR`, `ChunkSpecIR`, `ExchangeDescriptorIR`, `ChunkLayoutIR` - typed chunk decomposition IR models\n- Lowering functions: `chunk_layout_to_ir()`, `_chunk_spec_to_ir()`, `_face_halo_to_ir()`, `_exchange_descriptor_to_ir()`\n\n**Runtime Boundary Helpers (`src/autofdtd/runtime/boundaries.py`):**\n- `pack_halo()` - packs halo cells from a chunk face\n- `unpack_halo()` - unpacks halo cells into a chunk face\n- `apply_signs_to_halo()` - applies PEC/PMC/symmetry reflection signs\n- `apply_phase_to_halo()` - applies Bloch phase factor\n- `ChunkHaloExchange` class - manages halo exchange for a chunk layout\n- `build_chunk_halo_exchange()` - builds a chunk-aware halo exchange manager\n\n**Pipeline Integration (`src/autofdtd/compiler/pipeline.py`):**\n- `CompiledSimulation` now includes `chunk_layout: ChunkLayout` field\n- `compile_simulation()` builds `ChunkLayout` via `build_chunk_layout()`\n\n**Tests (`tests/test_kernels_boundaries.py`):**\n- 14 new tests for halo exchange helpers, `ChunkHaloExchange`, and chunk IR lowering\n- All 44 boundary kernel tests pass; all 632 total tests pass\n\n### Architecture Notes\n- Phase 1 uses **monolithic** chunking (single chunk `num_chunks=(1,1,1)`) with per-face PML halos\n- `halo_depth=1` preserved in `CompiledBoundarySpec` for backward compatibility; chunk-aware code uses `FaceHalo.depth` from `ChunkLayout`\n- Bulk-synchronous by default; hooks preserved for later systolic/overlapped execution",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 706706",
+  "next_action": "none"
+}

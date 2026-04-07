@@ -156,6 +156,7 @@ def should_resume_after_prompt_echo(stripped: str) -> bool:
         or is_warning_line(stripped)
         or is_progress_line(stripped)
         or stripped.startswith("OpenAI Codex")
+        or stripped.startswith("Claude")
         or stripped.startswith("--------")
         or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))
         or stripped in {"assistant", "tool", "reasoning", "final"}
@@ -170,6 +171,7 @@ def is_top_level_stream_marker(stripped: str) -> bool:
         or is_warning_line(stripped)
         or is_progress_line(stripped)
         or stripped.startswith("OpenAI Codex")
+        or stripped.startswith("Claude")
         or stripped.startswith("--------")
         or bool(re.match(r"^\d{4}-\d{2}-\d{2}T", stripped))
         or stripped in {"assistant", "tool", "reasoning", "final"}
@@ -378,6 +380,171 @@ def load_result(result_path: Path, task_id: str) -> dict:
         }
 
 
+PERMISSION_MODE_MAP = {
+    "danger-full-access": "bypassPermissions",
+}
+
+
+def run_claude(
+    bundle_dir: Path,
+    working_dir: str,
+    permission_mode: str,
+    prompt_text: str,
+    run_dir: Path,
+    console_path: Path,
+) -> int:
+    """Run Claude Code in headless (-p) mode using stream-json for reliable I/O."""
+    env = os.environ.copy()
+    # IS_SANDBOX=1 allows --dangerously-skip-permissions even as root
+    env["IS_SANDBOX"] = "1"
+
+    claude_mode = PERMISSION_MODE_MAP.get(permission_mode, permission_mode)
+
+    # Resolve working_dir to absolute path and add reference repos
+    working_path = Path(working_dir)
+    if not working_path.is_absolute():
+        working_path = (bundle_dir / working_dir).resolve()
+
+    # Reference repos that the loop prompt references
+    reference_repos = [
+        "/workspace/tidy3d",
+        "/workspace/meep",
+        "/workspace/GeometryPrimitives.jl",
+        "/workspace/libctl",
+        "/workspace/VectorModesolver.jl",
+        "/workspace/fdtdx",
+        "/workspace/Khronos.jl",
+        "/workspace/warp",
+    ]
+
+    # Build stream-json input
+    input_data = json.dumps({
+        "type": "user",
+        "message": {"role": "user", "content": prompt_text}
+    })
+
+    cmd = [
+        "claude", "-p",
+        "--dangerously-skip-permissions",
+        "--input-format", "stream-json",
+        "--output-format", "stream-json",
+        "--verbose",
+        "--add-dir", str(working_path),
+    ]
+    # Add reference repos
+    for repo in reference_repos:
+        if Path(repo).exists():
+            cmd.extend(["--add-dir", repo])
+        cmd.insert(3, claude_mode)
+
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        cwd=bundle_dir,
+        env=env,
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    process.stdin.write(input_data)
+    process.stdin.close()
+
+    # Capture stdout lines and look for result
+    stdout_lines = []
+    result_data = None
+    last_message_type = None
+
+    with (run_dir / "codex.stdout.txt").open("w") as stdout_fh:
+        for line in process.stdout:
+            stdout_fh.write(line)
+            stdout_fh.flush()
+            stdout_lines.append(line)
+
+            # Try to parse as JSON and extract meaningful info
+            try:
+                data = json.loads(line)
+                msg_type = data.get("type", "")
+
+                # Only write important events to console
+                if msg_type == "system":
+                    # Skip system init messages
+                    pass
+                elif msg_type == "assistant" and data.get("message"):
+                    content = data["message"].get("content", [])
+                    if isinstance(content, list):
+                        for item in content:
+                            if item.get("type") == "thinking":
+                                # Show thinking briefly
+                                thought = item.get("thinking", "")[:100]
+                                if thought:
+                                    append_console(console_path, f"  → {thought}...")
+                            elif item.get("type") == "tool_use":
+                                tool_name = item.get("name", "unknown")
+                                append_console(console_path, f"  • Using {tool_name}...")
+                elif msg_type == "result":
+                    result_data = data
+                    append_console(console_path, f"\nResult received: {len(data.get('result', ''))} chars")
+
+                last_message_type = msg_type
+            except json.JSONDecodeError:
+                pass
+
+    exit_code = process.wait()
+
+    # Build result.json in the expected schema format
+    result_path = run_dir / "result.json"
+    if result_data:
+        is_error = result_data.get("is_error", False)
+        stop_reason = result_data.get("stop_reason", "")
+        result_text = result_data.get("result", "")
+        result = {
+            "task_id": "",
+            "status": "completed" if not is_error and stop_reason == "end_turn" else "failed",
+            "summary": result_text[:4000] if result_text else "No result produced",
+            "key_findings": [],
+            "artifacts": [],
+            "error_summary": result_data.get("error", "") if is_error else "",
+            "follow_up_notes": f"stop_reason: {stop_reason}, duration_ms: {result_data.get('duration_ms', 0)}",
+            "next_action": "none",
+        }
+    else:
+        # No result found - timeout or error
+        full_output = "".join(stdout_lines).strip()
+        # Try to extract useful text from partial output
+        summary_lines = []
+        for line in stdout_lines[-50:]:
+            try:
+                data = json.loads(line)
+                if data.get("type") == "assistant" and data.get("message", {}).get("content"):
+                    content = data["message"]["content"]
+                    if isinstance(content, list):
+                        for item in content:
+                            if item.get("type") == "text":
+                                text = item.get("text", "")[:200]
+                                if text:
+                                    summary_lines.append(text)
+            except:
+                pass
+
+        summary = "\n".join(summary_lines[-3:]) if summary_lines else full_output[:500]
+        result = {
+            "task_id": "",
+            "status": "needs_retry",
+            "summary": f"Task did not complete. Exit code: {exit_code}. Partial output:\n{summary}",
+            "key_findings": [],
+            "artifacts": [],
+            "error_summary": "",
+            "follow_up_notes": f"exit_code: {exit_code}",
+            "next_action": "retry",
+        }
+    result_path.write_text(json.dumps(result, indent=2))
+
+    return exit_code
+
+
 def run_codex(
     bundle_dir: Path,
     working_dir: str,
@@ -438,6 +605,7 @@ def clear_terminal_metadata(task: Task) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle-dir", required=True)
+    parser.add_argument("--agent", default="codex", choices=["codex", "claude"])
     parser.add_argument("--max-iterations", type=int, default=None)
     args = parser.parse_args()
 
@@ -588,14 +756,25 @@ def main() -> int:
             },
         )
         start = datetime.now(timezone.utc)
-        exit_code = run_codex(
-            bundle_dir,
-            config["codex_working_dir"],
-            config["permission_mode"],
-            prompt_text,
-            run_dir,
-            console_path,
-        )
+        working_dir = config["codex_working_dir"]
+        if args.agent == "claude":
+            exit_code = run_claude(
+                bundle_dir,
+                working_dir,
+                config["permission_mode"],
+                prompt_text,
+                run_dir,
+                console_path,
+            )
+        else:
+            exit_code = run_codex(
+                bundle_dir,
+                working_dir,
+                config["permission_mode"],
+                prompt_text,
+                run_dir,
+                console_path,
+            )
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
         result = load_result(run_dir / "result.json", task.task_id)
         result_status = str(result.get("status", "failed"))

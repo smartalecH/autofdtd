@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "Task-051 is now complete. Here's a summary of what was implemented:\n\n**Boundary Kernel Stages Implementation:**\n\n1. **Warp GPU Kernels** in `src/autofdtd/kernels/boundaries.py`:\n   - `BOUNDARY_MODE_TO_WARP_CODE` - maps BoundaryMode enum to integer codes\n   - `warp_boundary_mode_code()` - returns integer mode code for Warp kernel dispatch\n   - `warp_apply_boundary_ghost()` - GPU kernel launch for ghost exchange\n   - `warp_apply_pml_layer()` - GPU kernel launch for PML damping updates  \n   - `warp_apply_abc_layer()` - GPU kernel launch for first-order ABC updates\n   - All have proper `if WARP_AVAILABLE:` / `else:` stub patterns\n\n2. **Chunk Runtime** in `src/autofdtd/runtime/chunk.py`:\n   - `ExchangeKind` enum (PERIODIC, BLOCH, PEC, PMC, PML, ABC, etc.)\n   - `FaceHalo` dataclass with halo metadata per face\n   - `ChunkSpec` with local grid shape, face halos, source/monitor indices\n   - `ExchangeDescriptor` for halo exchange operations\n   - `ChunkLayout` with device/rank assignment and chunk grid planning\n   - `build_chunk_layout()`, `chunk_min_timestep()`, `global_min_timestep()` and other helpers\n\n3. **Tests** in `tests/test_kernels_boundaries.py`:\n   - 30 tests covering metadata, ghost exchange (periodic/PEC/PMC/Bloch), PML state and layers, ABC state and layers, edge transforms, symmetry transforms, chunk spec, and boundary stages\n\n**Test Results:** All 542 tests pass (30 new + 512 existing).",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 2786796",
+  "next_action": "none"
+}

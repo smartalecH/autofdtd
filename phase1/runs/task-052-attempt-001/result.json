@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "## Summary\n\n**Task 052: Implement source-injection kernel stages and source scheduling** - Completed.\n\n### What was implemented\n\n1. **`apply_source_injection_stage()` in `runtime/sources.py`** - Unified runtime entry point that orchestrates all source types (uniform current, point dipole, custom current, custom field, mode source, plane wave, Gaussian beam, astigmatic Gaussian beam, TFSF) in a single function call.\n\n2. **`inject_sources_stage()` in `kernels/sources.py`** - Kernel-level unified source injection function that mirrors the runtime version for kernel composition.\n\n3. **Scheduling semantics** - Both functions follow the stage order documented in `step_kernel_metadata()`: `source_injection` runs between `electric_update` and `magnetic_update` with proper parameter passing (`time`, `dt`, `freq`).\n\n4. **Tests** - Created `tests/test_sources_scheduling.py` with 13 tests covering:\n   - Empty source stage\n   - Individual source types (uniform current, plane wave, TFSF)\n   - Multiple source types in single call\n   - Kernel/runtime equivalence\n   - Time evolution\n   - Field shape preservation\n   - Frequency parameter support\n   - Point dipole scheduling\n   - Custom current/field source scheduling\n   - Field accumulation semantics\n\n### Key findings\n\n- Source injection stages were already implemented for individual source types; task-052 added the unified scheduling interface.\n- All 87 source-related tests pass after the implementation.\n\n### Artifacts\n\n- `src/autofdtd/runtime/sources.py` - Added `apply_source_injection_stage()`\n- `src/autofdtd/kernels/sources.py` - Added `inject_sources_stage()`\n- `src/autofdtd/runtime/__init__.py` - Exported `apply_source_injection_stage`\n- `src/autofdtd/kernels/__init__.py` - Exported `inject_sources_stage`\n- `tests/test_sources_scheduling.py` - 13 new tests\n\n### Next action: `none` - Task complete.",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 518404",
+  "next_action": "none"
+}

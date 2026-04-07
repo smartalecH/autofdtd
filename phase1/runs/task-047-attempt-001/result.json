@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "\n**Task complete.** I created `phase1/architecture/chunk-contract.md` which defines the chunk contract with all required elements.\n\n---\n\n## Task Outcome: task-047 \u2014 COMPLETED\n\n**Summary:** Landed the Phase 1 chunk contract architecture note defining what a chunk owns, how chunks expose halo and monitor metadata, how chunk placement maps onto devices/nodes, and how this avoids blocking later systolic phases.\n\n**Key Findings:**\n- Chunk is the architectural unit for field storage/update; rank/device is placement, not computation\n- Current Phase 1 is monolithic with global `halo_depth=1` \u2014 must be replaced with per-face `FaceHalo.depth`\n- `ChunkSpec` is pure planning metadata (no field data); `ChunkLayout` adds device/rank placement\n- Halo exchange is stage-specific and component-family-specific: `boundary_exchange \u2192 electric_update \u2192 source_injection \u2192 boundary_exchange \u2192 magnetic_update \u2192 monitor_collection \u2192 pml_stage \u2192 convergence_check`\n- `ChunkSpec.source_indices` and `ChunkSpec.monitor_indices` route ownership to owning chunks\n- Symmetry reduction is a logical-address transform, not a data-layout change \u2014 `ChunkSpec.is_reduced` + `symmetry_multiplicity` track it\n- Concrete refactoring point: `halo_depth=1` in `CompiledBoundarySpec` \u2192 per-face `FaceHalo` from `ChunkLayout`\n- Deferred: MPI exchange (task-050+), dynamic load balancing, overlapped execution (task-052+), chunk-local CFL\n\n**Artifacts:**\n- `phase1/architecture/chunk-contract.md` \u2014 Full chunk contract with `ChunkSpec`, `FaceHalo`, `ChunkLayout`, PML/ABC state per chunk, CUDA/MPI placement, symmetry/Bloch handling, gap analysis, and task handoff table\n\n**Next Action:** `none` \u2014 task-047 success criteria fully satisfied",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 436974",
+  "next_action": "none"
+}

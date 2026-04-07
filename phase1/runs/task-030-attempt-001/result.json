@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "All 159 tests pass. Task-030 (CustomFieldSource with field-injection runtime support) is complete. Here's what was implemented:\n\n**CustomFieldSource** - Planar field source using the equivalence principle:\n- `J = n \u00d7 H` and `M = -n \u00d7 E` where n is the injection axis (zero-size dimension)\n- Direction support: `\"+\"` for forward propagation, `\"-\"` for backward\n- Planar geometry constraint: exactly one zero-size dimension required\n- Tangential field components (Ex, Ey for xy-plane, etc.) used for equivalence\n\n**Files modified:**\n- `src/autofdtd/sources/current.py` - CustomFieldSource model\n- `src/autofdtd/ir/models.py` - CustomFieldSourceIR and component IR\n- `src/autofdtd/compiler/sources.py` - compile_custom_field_source()\n- `src/autofdtd/kernels/sources.py` - inject_custom_field_source()\n- `src/autofdtd/runtime/sources.py` - build_custom_field_source_runtime()\n- `src/autofdtd/planning.py` - Feature matrix entry\n- Multiple `__init__.py` files - exports\n- `tests/test_sources_current.py` - 7 new tests covering validation, IR lowering, compilation, runtime integration, and equivalence principle",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 1032153",
+  "next_action": "none"
+}

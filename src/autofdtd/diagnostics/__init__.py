@@ -1,5 +1,24 @@
 """Runtime logging, metrics, and validation namespace."""
 
+from autofdtd.diagnostics.metrics import (
+    BenchmarkBoundaryClass,
+    BenchmarkMaterialClass,
+    BenchmarkMetadata,
+    BenchmarkPrecision,
+    BenchmarkResult,
+    BenchmarkTimer,
+    BenchmarkExecutionEvidence,
+    EndToEndTiming,
+    InitializationTiming,
+    JitTiming,
+    SteadyStateTiming,
+    StepEvidence,
+    build_benchmark_metadata,
+    build_steady_state_timing,
+    compute_cells_per_second,
+    compute_gcells_per_second,
+    benchmark_from_execution_log,
+)
 from autofdtd.diagnostics.runtime_logging import (
     RuntimeConvergenceEvidence,
     RuntimeConvergenceSample,
@@ -11,6 +30,16 @@ from autofdtd.diagnostics.runtime_logging import (
 )
 
 __all__ = [
+    "BenchmarkBoundaryClass",
+    "BenchmarkExecutionEvidence",
+    "BenchmarkMaterialClass",
+    "BenchmarkMetadata",
+    "BenchmarkPrecision",
+    "BenchmarkResult",
+    "BenchmarkTimer",
+    "EndToEndTiming",
+    "InitializationTiming",
+    "JitTiming",
     "RuntimeConvergenceEvidence",
     "RuntimeConvergenceSample",
     "RuntimeExecutionLog",
@@ -18,4 +47,11 @@ __all__ = [
     "RuntimeLogEventKind",
     "RuntimeLogTrigger",
     "RuntimeProgressLogger",
+    "SteadyStateTiming",
+    "StepEvidence",
+    "build_benchmark_metadata",
+    "build_steady_state_timing",
+    "compute_cells_per_second",
+    "compute_gcells_per_second",
+    "benchmark_from_execution_log",
 ]

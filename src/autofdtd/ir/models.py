@@ -72,13 +72,24 @@ from autofdtd.materials import (
     medium_model_from_value,
 )
 from autofdtd.sources import (
+    AstigmaticGaussianBeam,
     BroadbandPulse,
     ContinuousWave,
+    CustomCurrentSource,
+    CustomFieldSource,
     CustomSourceTime,
+    FixedAngleSpec,
+    FixedInPlaneKSpec,
+    GaussianBeam,
     GaussianPulse,
+    PointDipole,
+    PlaneWave,
+    TFSF,
     UniformCurrentSource,
+    angular_spec_model_from_value,
     source_time_model_from_value,
 )
+from autofdtd.sources.mode import ModeSource
 from autofdtd.version import __version__
 
 IR_SCHEMA_VERSION = "phase1.v1"
@@ -241,6 +252,216 @@ class UniformCurrentSourceIR(IRModel):
     source_time: SourceTimeIR
     name: str | None = None
     support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+
+
+class PointDipoleIR(IRModel):
+    """Typed execution IR for a point dipole source."""
+
+    type: Literal["PointDipoleIR"] = "PointDipoleIR"
+    component_type: Literal["PointDipole"] = "PointDipole"
+    center: tuple[float, float, float]
+    polarization: Literal["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]
+    field_kind: Literal["electric", "magnetic"]
+    component_axis: Literal[0, 1, 2]
+    placement_kind: Literal["point"] = "point"
+    zero_size_axes: tuple[int, ...] = (0, 1, 2)
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+
+
+class CustomCurrentSourceIR(IRModel):
+    """Typed execution IR for a custom current source with explicit field data."""
+
+    type: Literal["CustomCurrentSourceIR"] = "CustomCurrentSourceIR"
+    component_type: Literal["CustomCurrentSource"] = "CustomCurrentSource"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Field component data as typed tuples
+    e_fields: dict[str, tuple[float, ...]] | None = None
+    h_fields: dict[str, tuple[float, ...]] | None = None
+    coordinates: dict[str, tuple[float, ...]] | None = None
+    has_electric: bool = False
+    has_magnetic: bool = False
+
+
+class CustomFieldSourceIR(IRModel):
+    """Typed execution IR for a custom field source using equivalence principle."""
+
+    type: Literal["CustomFieldSourceIR"] = "CustomFieldSourceIR"
+    component_type: Literal["CustomFieldSource"] = "CustomFieldSource"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["sheet"] = "sheet"
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Field component data as typed tuples
+    e_fields: dict[str, tuple[float, ...]] | None = None
+    h_fields: dict[str, tuple[float, ...]] | None = None
+    coordinates: dict[str, tuple[float, ...]] | None = None
+    has_electric: bool = False
+    has_magnetic: bool = False
+    has_tangential_fields: bool = False
+
+
+class ModeSourceIR(IRModel):
+    """Typed execution IR for a mode source backed by the mode solver."""
+
+    type: Literal["ModeSourceIR"] = "ModeSourceIR"
+    component_type: Literal["ModeSource"] = "ModeSource"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["sheet"] = "sheet"
+    mode_index: int
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Mode profile data as typed tuples (from mode solver)
+    e_fields: dict[str, tuple[tuple[float, float], ...]] | None = None
+    h_fields: dict[str, tuple[tuple[float, float], ...]] | None = None
+    mode_neff: float | None = None
+    mode_power: float = 1.0
+
+
+class FixedInPlaneKSpecIR(IRModel):
+    """Typed execution IR for fixed in-plane k specification."""
+
+    type: Literal["FixedInPlaneKSpecIR"] = "FixedInPlaneKSpecIR"
+    component_type: Literal["FixedInPlaneKSpec"] = "FixedInPlaneKSpec"
+
+
+class FixedAngleSpecIR(IRModel):
+    """Typed execution IR for fixed angle specification."""
+
+    type: Literal["FixedAngleSpecIR"] = "FixedAngleSpecIR"
+    component_type: Literal["FixedAngleSpec"] = "FixedAngleSpec"
+
+
+AngularSpecIR = FixedInPlaneKSpecIR | FixedAngleSpecIR
+
+
+class PlaneWaveIR(IRModel):
+    """Typed execution IR for a plane wave source."""
+
+    type: Literal["PlaneWaveIR"] = "PlaneWaveIR"
+    component_type: Literal["PlaneWave"] = "PlaneWave"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    angle_theta: float
+    angle_phi: float
+    pol_angle: float
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["sheet"] = "sheet"
+    angular_spec: AngularSpecIR
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Direction and polarization vectors for injection
+    dir_vector: tuple[float, float, float]
+    pol_vector: tuple[float, float, float]
+
+
+class GaussianBeamIR(IRModel):
+    """Typed execution IR for a Gaussian beam source."""
+
+    type: Literal["GaussianBeamIR"] = "GaussianBeamIR"
+    component_type: Literal["GaussianBeam"] = "GaussianBeam"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    angle_theta: float
+    angle_phi: float
+    pol_angle: float
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["sheet"] = "sheet"
+    angular_spec: AngularSpecIR
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Direction and polarization vectors for injection
+    dir_vector: tuple[float, float, float]
+    pol_vector: tuple[float, float, float]
+    # Beam properties
+    waist_radius: float
+    waist_distance: float
+    reference_wavelength: float | None = None
+
+
+class AstigmaticGaussianBeamIR(IRModel):
+    """Typed execution IR for an astigmatic Gaussian beam source."""
+
+    type: Literal["AstigmaticGaussianBeamIR"] = "AstigmaticGaussianBeamIR"
+    component_type: Literal["AstigmaticGaussianBeam"] = "AstigmaticGaussianBeam"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    angle_theta: float
+    angle_phi: float
+    pol_angle: float
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["sheet"] = "sheet"
+    angular_spec: AngularSpecIR
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Direction and polarization vectors for injection
+    dir_vector: tuple[float, float, float]
+    pol_vector: tuple[float, float, float]
+    # Astigmatic beam properties
+    waist_radius_x: float
+    waist_radius_y: float
+    waist_distance_x: float
+    waist_distance_y: float
+    reference_wavelength: float | None = None
+
+
+class TFSFIR(IRModel):
+    """Typed execution IR for a total-field scattered-field source."""
+
+    type: Literal["TFSFIR"] = "TFSFIR"
+    component_type: Literal["TFSF"] = "TFSF"
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    direction: Literal["+", "-"]
+    angle_theta: float
+    angle_phi: float
+    pol_angle: float
+    injection_axis: Literal[0, 1, 2]
+    placement_kind: Literal["volume"] = "volume"
+    interpolate: bool
+    confine_to_bounds: bool
+    source_time: SourceTimeIR
+    name: str | None = None
+    support_bounds: tuple[tuple[float, float, float], tuple[float, float, float]]
+    # Direction and polarization vectors for injection
+    dir_vector: tuple[float, float, float]
+    pol_vector: tuple[float, float, float]
+    num_freqs: int
+    injection_plane_center: tuple[float, float, float]
+    reference_wavelength: float | None = None
 
 
 class BoxIR(IRModel):
@@ -665,6 +886,71 @@ class BoundarySpecIR(IRModel):
     symmetry_axes: tuple[SymmetryAxisIR, ...] = ()
 
 
+class FaceHaloIR(IRModel):
+    """Typed execution IR for one face halo descriptor."""
+
+    type: Literal["FaceHaloIR"] = "FaceHaloIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["FaceHalo"] = "FaceHalo"
+    axis: Literal["x", "y", "z"]
+    side: Literal["minus", "plus"]
+    depth: int = 1
+    neighbor_chunk_index: tuple[int, int, int] | None = None
+    exchange_kind: str = "interior"
+    phase_factor: complex = 1.0 + 0.0j
+    electric_signs: tuple[int, int, int] = (1, 1, 1)
+    magnetic_signs: tuple[int, int, int] = (1, 1, 1)
+
+
+class ChunkSpecIR(IRModel):
+    """Typed execution IR for one chunk's planning metadata."""
+
+    type: Literal["ChunkSpecIR"] = "ChunkSpecIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["ChunkSpec"] = "ChunkSpec"
+    chunk_index: tuple[int, int, int]
+    global_bounds: tuple[tuple[int, int, int], tuple[int, int, int]]
+    interior_bounds: tuple[tuple[int, int, int], tuple[int, int, int]]
+    owned_bounds: tuple[tuple[int, int, int], tuple[int, int, int]]
+    local_grid_shape: tuple[int, int, int]
+    face_halos: tuple[FaceHaloIR, ...] = ()
+    is_reduced: bool = False
+    symmetry_multiplicity: int = 1
+    source_indices: tuple[int, ...] = ()
+    monitor_indices: tuple[int, ...] = ()
+
+
+class ExchangeDescriptorIR(IRModel):
+    """Typed execution IR for one halo exchange operation."""
+
+    type: Literal["ExchangeDescriptorIR"] = "ExchangeDescriptorIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["ExchangeDescriptor"] = "ExchangeDescriptor"
+    source_chunk_index: tuple[int, int, int]
+    dest_chunk_index: tuple[int, int, int]
+    axis: Literal["x", "y", "z"]
+    source_side: Literal["minus", "plus"]
+    dest_side: Literal["minus", "plus"]
+    exchange_kind: str
+    phase_factor: complex = 1.0 + 0.0j
+
+
+class ChunkLayoutIR(IRModel):
+    """Typed execution IR for the global chunk decomposition plan."""
+
+    type: Literal["ChunkLayoutIR"] = "ChunkLayoutIR"
+    family: Literal["boundary"] = "boundary"
+    component_type: Literal["ChunkLayout"] = "ChunkLayout"
+    num_chunks: tuple[int, int, int]
+    total_chunks: int
+    chunks: tuple[ChunkSpecIR, ...]
+    periodic_axes: tuple[str, ...] = ()
+    bloch_axes: tuple[str, ...] = ()
+    exchange_plan: tuple[ExchangeDescriptorIR, ...] = ()
+    device_assignment: tuple[int, ...] = ()
+    rank_assignment: tuple[int, ...] = ()
+
+
 class MediumIR(IRModel):
     """Typed execution IR for a homogeneous isotropic dielectric or conductor."""
 
@@ -828,7 +1114,335 @@ class SceneIR(IRModel):
     structures: tuple[StructureIR, ...] = ()
 
 
-SourceComponentIR = ComponentIR | UniformCurrentSourceIR
+SourceComponentIR = ComponentIR | UniformCurrentSourceIR | PointDipoleIR | CustomCurrentSourceIR | CustomFieldSourceIR | ModeSourceIR | PlaneWaveIR | GaussianBeamIR | AstigmaticGaussianBeamIR | TFSFIR
+
+
+# --------------------------------------------------------------------
+# Monitor IR models
+# --------------------------------------------------------------------
+
+
+class FieldMonitorIR(IRModel):
+    """Typed execution IR for a field monitor."""
+
+    type: Literal["FieldMonitorIR"] = "FieldMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FieldMonitor"] = "FieldMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+    overwrite: bool = True
+
+
+class FieldTimeMonitorIR(IRModel):
+    """Typed execution IR for a time-domain field monitor."""
+
+    type: Literal["FieldTimeMonitorIR"] = "FieldTimeMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FieldTimeMonitor"] = "FieldTimeMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+
+
+class AuxFieldTimeMonitorIR(IRModel):
+    """Typed execution IR for an auxiliary field time monitor."""
+
+    type: Literal["AuxFieldTimeMonitorIR"] = "AuxFieldTimeMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["AuxFieldTimeMonitor"] = "AuxFieldTimeMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+
+
+class FluxMonitorIR(IRModel):
+    """Typed execution IR for a flux monitor."""
+
+    type: Literal["FluxMonitorIR"] = "FluxMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FluxMonitor"] = "FluxMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class FluxTimeMonitorIR(IRModel):
+    """Typed execution IR for a time-domain flux monitor."""
+
+    type: Literal["FluxTimeMonitorIR"] = "FluxTimeMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FluxTimeMonitor"] = "FluxTimeMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+
+
+class ModeMonitorIR(IRModel):
+    """Typed execution IR for a mode monitor."""
+
+    type: Literal["ModeMonitorIR"] = "ModeMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["ModeMonitor"] = "ModeMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+    mode_spec: dict[str, Any] | None = None
+
+
+class ModeSolverMonitorIR(IRModel):
+    """Typed execution IR for a mode solver monitor."""
+
+    type: Literal["ModeSolverMonitorIR"] = "ModeSolverMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["ModeSolverMonitor"] = "ModeSolverMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+    mode_spec: dict[str, Any] | None = None
+
+
+class MediumMonitorIR(IRModel):
+    """Typed execution IR for a medium monitor."""
+
+    type: Literal["MediumMonitorIR"] = "MediumMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["MediumMonitor"] = "MediumMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class PermittivityMonitorIR(IRModel):
+    """Typed execution IR for a permittivity monitor."""
+
+    type: Literal["PermittivityMonitorIR"] = "PermittivityMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["PermittivityMonitor"] = "PermittivityMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+
+
+class FieldProjectionAngleMonitorIR(IRModel):
+    """Typed execution IR for an angle-space field projection monitor."""
+
+    type: Literal["FieldProjectionAngleMonitorIR"] = "FieldProjectionAngleMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FieldProjectionAngleMonitor"] = "FieldProjectionAngleMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    normal_vector: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    projection_distance: float = 1e5
+    phi: tuple[float, float, int] = (-90.0, 90.0, 181)
+    theta: tuple[float, float, int] = (0.0, 180.0, 181)
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class FieldProjectionCartesianMonitorIR(IRModel):
+    """Typed execution IR for a Cartesian field projection monitor."""
+
+    type: Literal["FieldProjectionCartesianMonitorIR"] = "FieldProjectionCartesianMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FieldProjectionCartesianMonitor"] = "FieldProjectionCartesianMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    normal_vector: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    projection_distance: float = 1e5
+    x: tuple[float, float, int] = (-50.0, 50.0, 201)
+    y: tuple[float, float, int] = (-50.0, 50.0, 201)
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class FieldProjectionKSpaceMonitorIR(IRModel):
+    """Typed execution IR for a k-space field projection monitor."""
+
+    type: Literal["FieldProjectionKSpaceMonitorIR"] = "FieldProjectionKSpaceMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["FieldProjectionKSpaceMonitor"] = "FieldProjectionKSpaceMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    normal_vector: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    projection_distance: float = 1e5
+    num_k: int = 1
+    kx: tuple[float, float, int] = (-10.0, 10.0, 21)
+    ky: tuple[float, float, int] = (-10.0, 10.0, 21)
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class DiffractionMonitorIR(IRModel):
+    """Typed execution IR for a diffraction monitor."""
+
+    type: Literal["DiffractionMonitorIR"] = "DiffractionMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["DiffractionMonitor"] = "DiffractionMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    normal_vector: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class DirectivityMonitorIR(IRModel):
+    """Typed execution IR for a directivity monitor."""
+
+    type: Literal["DirectivityMonitorIR"] = "DirectivityMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["DirectivityMonitor"] = "DirectivityMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    normal_vector: tuple[float, float, float] = (0.0, 0.0, 1.0)
+    projection_distance: float = 1e5
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class GaussianOverlapMonitorIR(IRModel):
+    """Typed execution IR for a Gaussian overlap monitor."""
+
+    type: Literal["GaussianOverlapMonitorIR"] = "GaussianOverlapMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["GaussianOverlapMonitor"] = "GaussianOverlapMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+    # Beam parameters
+    angle_theta: float = 0.0
+    angle_phi: float = 0.0
+    pol_angle: float = 0.0
+    waist_radius: float = 1.0
+    waist_distance: float = 0.0
+
+
+class AstigmaticGaussianOverlapMonitorIR(IRModel):
+    """Typed execution IR for an astigmatic Gaussian overlap monitor."""
+
+    type: Literal["AstigmaticGaussianOverlapMonitorIR"] = "AstigmaticGaussianOverlapMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["AstigmaticGaussianOverlapMonitor"] = "AstigmaticGaussianOverlapMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    direction: Literal["+", "-"] = "+"
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+    # Beam parameters
+    angle_theta: float = 0.0
+    angle_phi: float = 0.0
+    pol_angle: float = 0.0
+    waist_sizes: tuple[float, float] = (1.0, 1.0)
+    waist_distances: tuple[float, float] = (0.0, 0.0)
+
+
+class SurfaceFieldMonitorIR(IRModel):
+    """Typed execution IR for a surface field monitor."""
+
+    type: Literal["SurfaceFieldMonitorIR"] = "SurfaceFieldMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["SurfaceFieldMonitor"] = "SurfaceFieldMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+
+class SurfaceFieldTimeMonitorIR(IRModel):
+    """Typed execution IR for a surface field time monitor."""
+
+    type: Literal["SurfaceFieldTimeMonitorIR"] = "SurfaceFieldTimeMonitorIR"
+    family: Literal["monitor"] = "monitor"
+    component_type: Literal["SurfaceFieldTimeMonitor"] = "SurfaceFieldTimeMonitor"
+    name: str | None = None
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
+    interval: int = 1
+    start: int = 0
+    fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+
+
+MonitorComponentIR = (
+    ComponentIR
+    | FieldMonitorIR
+    | FieldTimeMonitorIR
+    | AuxFieldTimeMonitorIR
+    | FluxMonitorIR
+    | FluxTimeMonitorIR
+    | ModeMonitorIR
+    | ModeSolverMonitorIR
+    | MediumMonitorIR
+    | PermittivityMonitorIR
+    | FieldProjectionAngleMonitorIR
+    | FieldProjectionCartesianMonitorIR
+    | FieldProjectionKSpaceMonitorIR
+    | DiffractionMonitorIR
+    | DirectivityMonitorIR
+    | GaussianOverlapMonitorIR
+    | AstigmaticGaussianOverlapMonitorIR
+    | SurfaceFieldMonitorIR
+    | SurfaceFieldTimeMonitorIR
+)
 
 
 class SimulationIR(IRModel):
@@ -846,7 +1460,7 @@ class SimulationIR(IRModel):
     shutoff: float | None = None
     scene: SceneIR
     sources: tuple[SourceComponentIR, ...] = ()
-    monitors: tuple[ComponentIR, ...] = ()
+    monitors: tuple[MonitorComponentIR, ...] = ()
     boundary_spec: BoundarySpecIR | ComponentIR | None = None
     grid_spec: GridSpecIR | ComponentIR | None = None
     subpixel: SubpixelSpecIR | ComponentIR | None = None
@@ -953,16 +1567,18 @@ def _component_payload(value: object) -> dict[str, Any]:
     return {str(key): json_ready(item) for key, item in raw.items()}
 
 
-def component_to_ir(value: object, *, family: str) -> ComponentIR | UniformCurrentSourceIR:
+def component_to_ir(value: object, *, family: str) -> SourceComponentIR:
     """Normalize a tagged public component into a transport-safe IR envelope."""
-    if family == ComponentFamily.SOURCE and isinstance(value, UniformCurrentSource):
+    if family == ComponentFamily.SOURCE and isinstance(
+        value, (UniformCurrentSource, PointDipole, CustomCurrentSource, CustomFieldSource, ModeSource, PlaneWave, GaussianBeam, AstigmaticGaussianBeam, TFSF)
+    ):
         return source_to_ir(value)
     if (
         family == ComponentFamily.SOURCE
         and isinstance(value, Mapping)
-        and str(value.get("type")) == "UniformCurrentSource"
+        and str(value.get("type")) in {"UniformCurrentSource", "PointDipole", "CustomCurrentSource", "CustomFieldSource", "ModeSource", "PlaneWave", "GaussianBeam", "AstigmaticGaussianBeam", "TFSF"}
     ):
-        return source_to_ir(UniformCurrentSource.model_validate(value))
+        return source_to_ir(value)
     raw = _component_payload(value)
     if family == ComponentFamily.SOURCE and "source_time" in raw:
         raw["source_time"] = json_ready(source_time_to_ir(raw["source_time"]))
@@ -979,26 +1595,201 @@ def component_to_ir(value: object, *, family: str) -> ComponentIR | UniformCurre
 def source_to_ir(value: object) -> SourceComponentIR:
     """Lower supported Phase 1 source models into typed execution IR."""
 
-    source = (
-        value
-        if isinstance(value, UniformCurrentSource)
-        else UniformCurrentSource.model_validate(value)
-    )
-    return UniformCurrentSourceIR(
-        center=source.center,
-        size=source.size,
-        polarization=source.polarization,
-        field_kind=source.field_kind,
-        component_axis=source.component_axis,
-        placement_kind=source.placement_kind,
-        zero_size_axes=source.zero_size_axes,
-        interpolate=source.interpolate,
-        confine_to_bounds=source.confine_to_bounds,
-        current_amplitude_definition=source.current_amplitude_definition,
-        source_time=source_time_to_ir(source.source_time),
-        name=source.name,
-        support_bounds=source.support_bounds,
-    )
+    if isinstance(value, UniformCurrentSource):
+        return UniformCurrentSourceIR(
+            center=value.center,
+            size=value.size,
+            polarization=value.polarization,
+            field_kind=value.field_kind,
+            component_axis=value.component_axis,
+            placement_kind=value.placement_kind,
+            zero_size_axes=value.zero_size_axes,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            current_amplitude_definition=value.current_amplitude_definition,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+        )
+    if isinstance(value, PointDipole):
+        return PointDipoleIR(
+            center=value.center,
+            polarization=value.polarization,
+            field_kind=value.field_kind,
+            component_axis=value.component_axis,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+        )
+    if isinstance(value, CustomCurrentSource):
+        return CustomCurrentSourceIR(
+            center=value.center,
+            size=value.size,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            e_fields=value.e_fields,
+            h_fields=value.h_fields,
+            coordinates=value.coordinates,
+            has_electric=value.has_electric,
+            has_magnetic=value.has_magnetic,
+        )
+    if isinstance(value, CustomFieldSource):
+        return CustomFieldSourceIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            e_fields=value.e_fields,
+            h_fields=value.h_fields,
+            coordinates=value.coordinates,
+            has_electric=value.has_electric,
+            has_magnetic=value.has_magnetic,
+            has_tangential_fields=value.has_tangential_fields,
+        )
+    if isinstance(value, ModeSource):
+        return ModeSourceIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            mode_index=value.mode_index,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            e_fields=None,  # Populated by mode solver during compilation
+            h_fields=None,  # Populated by mode solver during compilation
+            mode_neff=None,  # Populated by mode solver during compilation
+            mode_power=1.0,
+        )
+    if isinstance(value, PlaneWave):
+        return PlaneWaveIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            angle_theta=value.angle_theta,
+            angle_phi=value.angle_phi,
+            pol_angle=value.pol_angle,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            angular_spec=_angular_spec_to_ir(value.angular_spec),
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            dir_vector=value._dir_vector,
+            pol_vector=value._pol_vector,
+        )
+    if isinstance(value, GaussianBeam):
+        return GaussianBeamIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            angle_theta=value.angle_theta,
+            angle_phi=value.angle_phi,
+            pol_angle=value.pol_angle,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            angular_spec=_angular_spec_to_ir(value.angular_spec),
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            dir_vector=value._dir_vector,
+            pol_vector=value._pol_vector,
+            waist_radius=value.waist_radius,
+            waist_distance=value.waist_distance,
+            reference_wavelength=value._reference_wavelength,
+        )
+    if isinstance(value, AstigmaticGaussianBeam):
+        return AstigmaticGaussianBeamIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            angle_theta=value.angle_theta,
+            angle_phi=value.angle_phi,
+            pol_angle=value.pol_angle,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            angular_spec=_angular_spec_to_ir(value.angular_spec),
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            dir_vector=value._dir_vector,
+            pol_vector=value._pol_vector,
+            waist_radius_x=value.waist_radius_x,
+            waist_radius_y=value.waist_radius_y,
+            waist_distance_x=value.waist_distance_x,
+            waist_distance_y=value.waist_distance_y,
+            reference_wavelength=value._reference_wavelength,
+        )
+    if isinstance(value, TFSF):
+        return TFSFIR(
+            center=value.center,
+            size=value.size,
+            direction=value.direction,
+            angle_theta=value.angle_theta,
+            angle_phi=value.angle_phi,
+            pol_angle=value.pol_angle,
+            injection_axis=value.injection_axis,
+            placement_kind=value.placement_kind,
+            interpolate=value.interpolate,
+            confine_to_bounds=value.confine_to_bounds,
+            source_time=source_time_to_ir(value.source_time),
+            name=value.name,
+            support_bounds=value.support_bounds,
+            dir_vector=value._dir_vector,
+            pol_vector=value._pol_vector,
+            num_freqs=value.num_freqs,
+            injection_plane_center=value.injection_plane_center,
+            reference_wavelength=value._reference_wavelength,
+        )
+    if isinstance(value, Mapping) and str(value.get("type")) == "UniformCurrentSource":
+        return source_to_ir(UniformCurrentSource.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "PointDipole":
+        return source_to_ir(PointDipole.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "CustomCurrentSource":
+        return source_to_ir(CustomCurrentSource.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "CustomFieldSource":
+        return source_to_ir(CustomFieldSource.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "ModeSource":
+        return source_to_ir(ModeSource.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "PlaneWave":
+        return source_to_ir(PlaneWave.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "GaussianBeam":
+        return source_to_ir(GaussianBeam.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "AstigmaticGaussianBeam":
+        return source_to_ir(AstigmaticGaussianBeam.model_validate(value))
+    if isinstance(value, Mapping) and str(value.get("type")) == "TFSF":
+        return source_to_ir(TFSF.model_validate(value))
+    raise TypeError(f"unsupported Phase 1 source type for IR lowering: {type(value)!r}")
+
+
+def _angular_spec_to_ir(value: object) -> AngularSpecIR:
+    """Lower an angular spec model into typed execution IR."""
+    spec = angular_spec_model_from_value(value)
+    if isinstance(spec, FixedInPlaneKSpec):
+        return FixedInPlaneKSpecIR()
+    if isinstance(spec, FixedAngleSpec):
+        return FixedAngleSpecIR()
+    raise TypeError(f"unsupported angular spec type: {type(spec)!r}")
 
 
 def source_time_to_ir(value: object) -> SourceTimeIR:
@@ -1564,6 +2355,89 @@ def boundary_spec_to_ir(
     )
 
 
+def _face_halo_to_ir(
+    face_halo: object,
+) -> FaceHaloIR:
+    """Lower a FaceHalo into typed execution IR."""
+    from autofdtd.runtime.chunk import FaceHalo as RuntimeFaceHalo
+
+    if isinstance(face_halo, RuntimeFaceHalo):
+        return FaceHaloIR(
+            axis=face_halo.axis,
+            side=face_halo.side,
+            depth=face_halo.depth,
+            neighbor_chunk_index=face_halo.neighbor_chunk_index,
+            exchange_kind=face_halo.exchange_kind.value,
+            phase_factor=face_halo.phase_factor,
+            electric_signs=face_halo.electric_signs,
+            magnetic_signs=face_halo.magnetic_signs,
+        )
+    raise TypeError(f"expected FaceHalo, got {type(face_halo)!r}")
+
+
+def _chunk_spec_to_ir(
+    chunk_spec: object,
+) -> ChunkSpecIR:
+    """Lower a ChunkSpec into typed execution IR."""
+    from autofdtd.runtime.chunk import ChunkSpec as RuntimeChunkSpec
+
+    if not isinstance(chunk_spec, RuntimeChunkSpec):
+        raise TypeError(f"expected ChunkSpec, got {type(chunk_spec)!r}")
+    return ChunkSpecIR(
+        chunk_index=chunk_spec.chunk_index,
+        global_bounds=chunk_spec.global_bounds,
+        interior_bounds=chunk_spec.interior_bounds,
+        owned_bounds=chunk_spec.owned_bounds,
+        local_grid_shape=chunk_spec.local_grid_shape,
+        face_halos=tuple(_face_halo_to_ir(h) for h in chunk_spec.face_halos.values()),
+        is_reduced=chunk_spec.is_reduced,
+        symmetry_multiplicity=chunk_spec.symmetry_multiplicity,
+        source_indices=chunk_spec.source_indices,
+        monitor_indices=chunk_spec.monitor_indices,
+    )
+
+
+def _exchange_descriptor_to_ir(
+    exchange_desc: object,
+) -> ExchangeDescriptorIR:
+    """Lower an ExchangeDescriptor into typed execution IR."""
+    from autofdtd.runtime.chunk import ExchangeDescriptor as RuntimeExchangeDescriptor
+
+    if not isinstance(exchange_desc, RuntimeExchangeDescriptor):
+        raise TypeError(f"expected ExchangeDescriptor, got {type(exchange_desc)!r}")
+    return ExchangeDescriptorIR(
+        source_chunk_index=exchange_desc.source_chunk_index,
+        dest_chunk_index=exchange_desc.dest_chunk_index,
+        axis=exchange_desc.axis,
+        source_side=exchange_desc.source_side,
+        dest_side=exchange_desc.dest_side,
+        exchange_kind=exchange_desc.exchange_kind.value,
+        phase_factor=exchange_desc.phase_factor,
+    )
+
+
+def chunk_layout_to_ir(
+    chunk_layout: object,
+) -> ChunkLayoutIR:
+    """Lower a ChunkLayout into typed execution IR."""
+    from autofdtd.runtime.chunk import ChunkLayout as RuntimeChunkLayout
+
+    if not isinstance(chunk_layout, RuntimeChunkLayout):
+        raise TypeError(f"expected ChunkLayout, got {type(chunk_layout)!r}")
+    return ChunkLayoutIR(
+        num_chunks=chunk_layout.num_chunks,
+        total_chunks=chunk_layout.total_chunks,
+        chunks=tuple(_chunk_spec_to_ir(c) for c in chunk_layout.chunks),
+        periodic_axes=chunk_layout.periodic_axes,
+        bloch_axes=chunk_layout.bloch_axes,
+        exchange_plan=tuple(
+            _exchange_descriptor_to_ir(e) for e in chunk_layout.exchange_plan.values()
+        ),
+        device_assignment=chunk_layout.device_assignment,
+        rank_assignment=chunk_layout.rank_assignment,
+    )
+
+
 def _resolved_grid_axis_to_ir(value: ResolvedGridAxis) -> ResolvedGridAxisIR:
     return ResolvedGridAxisIR(
         axis=value.axis,
@@ -1733,6 +2607,286 @@ def scene_to_ir(scene: Scene) -> SceneIR:
     )
 
 
+def _monitor_freqs_to_tuple(freqs: tuple[float, ...] | None) -> tuple[float, ...]:
+    """Normalize monitor freqs field to a tuple."""
+    if freqs is None:
+        return ()
+    return freqs
+
+
+def monitor_to_ir(value: object) -> MonitorComponentIR:
+    """Lower a supported Phase 1 monitor model into typed execution IR."""
+
+    # Import here to avoid circular import
+    from autofdtd.monitors import (
+        FieldMonitor,
+        FieldTimeMonitor,
+        AuxFieldTimeMonitor,
+        FluxMonitor,
+        FluxTimeMonitor,
+        ModeMonitor,
+        ModeSolverMonitor,
+        MediumMonitor,
+        PermittivityMonitor,
+        FieldProjectionAngleMonitor,
+        FieldProjectionCartesianMonitor,
+        FieldProjectionKSpaceMonitor,
+        DiffractionMonitor,
+        DirectivityMonitor,
+        GaussianOverlapMonitor,
+        AstigmaticGaussianOverlapMonitor,
+        SurfaceFieldMonitor,
+        SurfaceFieldTimeMonitor,
+        monitor_model_from_value,
+    )
+
+    try:
+        monitor = monitor_model_from_value(value)
+    except Exception:
+        # Fall back to generic ComponentIR for unknown or incomplete monitor types
+        raw = _component_payload(value)
+        component_type = str(raw.pop("type", value.__class__.__name__))
+        name = raw.get("name")
+        return ComponentIR(
+            family=ComponentFamily.MONITOR,
+            component_type=component_type,
+            name=str(name) if isinstance(name, str) else None,
+            payload=raw,
+        )
+
+    if isinstance(monitor, FieldMonitor):
+        return FieldMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            fields=monitor.fields,
+            overwrite=monitor.overwrite,
+        )
+    if isinstance(monitor, FieldTimeMonitor):
+        return FieldTimeMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            fields=monitor.fields,
+        )
+    if isinstance(monitor, AuxFieldTimeMonitor):
+        return AuxFieldTimeMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            fields=monitor.fields,
+        )
+    if isinstance(monitor, FluxMonitor):
+        return FluxMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, FluxTimeMonitor):
+        return FluxTimeMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+        )
+    if isinstance(monitor, ModeMonitor):
+        mode_spec_dict = None
+        if monitor.mode_spec is not None:
+            if hasattr(monitor.mode_spec, "model_dump"):
+                mode_spec_dict = monitor.mode_spec.model_dump(mode="json", exclude_none=True)
+            else:
+                mode_spec_dict = dict(monitor.mode_spec)
+        return ModeMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+            mode_spec=mode_spec_dict,
+        )
+    if isinstance(monitor, ModeSolverMonitor):
+        mode_spec_dict = None
+        if monitor.mode_spec is not None:
+            if hasattr(monitor.mode_spec, "model_dump"):
+                mode_spec_dict = monitor.mode_spec.model_dump(mode="json", exclude_none=True)
+            else:
+                mode_spec_dict = dict(monitor.mode_spec)
+        return ModeSolverMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+            mode_spec=mode_spec_dict,
+        )
+    if isinstance(monitor, MediumMonitor):
+        return MediumMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, PermittivityMonitor):
+        return PermittivityMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+        )
+    if isinstance(monitor, FieldProjectionAngleMonitor):
+        return FieldProjectionAngleMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            normal_vector=monitor.normal_vector,
+            projection_distance=monitor.projection_distance,
+            phi=monitor.phi,
+            theta=monitor.theta,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, FieldProjectionCartesianMonitor):
+        return FieldProjectionCartesianMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            normal_vector=monitor.normal_vector,
+            projection_distance=monitor.projection_distance,
+            x=monitor.x,
+            y=monitor.y,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, FieldProjectionKSpaceMonitor):
+        return FieldProjectionKSpaceMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            normal_vector=monitor.normal_vector,
+            projection_distance=monitor.projection_distance,
+            num_k=monitor.num_k,
+            kx=monitor.kx,
+            ky=monitor.ky,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, DiffractionMonitor):
+        return DiffractionMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            normal_vector=monitor.normal_vector,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, DirectivityMonitor):
+        return DirectivityMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            normal_vector=monitor.normal_vector,
+            projection_distance=monitor.projection_distance,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+        )
+    if isinstance(monitor, GaussianOverlapMonitor):
+        return GaussianOverlapMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+            angle_theta=monitor.angle_theta,
+            angle_phi=monitor.angle_phi,
+            pol_angle=monitor.pol_angle,
+            waist_radius=monitor.waist_radius,
+            waist_distance=monitor.waist_distance,
+        )
+    if isinstance(monitor, AstigmaticGaussianOverlapMonitor):
+        return AstigmaticGaussianOverlapMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            direction=monitor.direction,
+            num_freqs=monitor.num_freqs,
+            freqs=_monitor_freqs_to_tuple(monitor.freqs),
+            angle_theta=monitor.angle_theta,
+            angle_phi=monitor.angle_phi,
+            pol_angle=monitor.pol_angle,
+            waist_sizes=monitor.waist_sizes,
+            waist_distances=monitor.waist_distances,
+        )
+    if isinstance(monitor, SurfaceFieldMonitor):
+        return SurfaceFieldMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            fields=monitor.fields,
+            num_freqs=monitor.num_freqs,
+            freqs=monitor.freqs,
+        )
+    if isinstance(monitor, SurfaceFieldTimeMonitor):
+        return SurfaceFieldTimeMonitorIR(
+            name=monitor.name,
+            center=monitor.center,
+            size=monitor.size,
+            interval=monitor.interval,
+            start=monitor.start,
+            fields=monitor.fields,
+        )
+
+    # Fall back to generic ComponentIR for unknown monitor types
+    raw = _component_payload(monitor)
+    component_type = str(raw.pop("type", monitor.__class__.__name__))
+    name = raw.get("name")
+    return ComponentIR(
+        family=ComponentFamily.MONITOR,
+        component_type=component_type,
+        name=str(name) if isinstance(name, str) else None,
+        payload=raw,
+    )
+
+
 def simulation_to_ir(simulation: Simulation) -> SimulationIR:
     """Lower a public simulation shell into a versioned execution-IR snapshot."""
     runtime_controls = None
@@ -1766,7 +2920,7 @@ def simulation_to_ir(simulation: Simulation) -> SimulationIR:
             component_to_ir(source, family=ComponentFamily.SOURCE) for source in simulation.sources
         ),
         monitors=tuple(
-            component_to_ir(monitor, family=ComponentFamily.MONITOR)
+            monitor_to_ir(monitor)
             for monitor in simulation.monitors
         ),
         boundary_spec=(

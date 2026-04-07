@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "\n\n**Task 041 complete.** All 375 tests pass.\n\n**Summary:** Implemented `GaussianOverlapMonitor` and `AstigmaticGaussianOverlapMonitor` support with full Tidy3D-compatible beam parameters, IR lowering, data types, and registration methods. The task scope was intentionally narrow and focused on the API surface - concrete runtime/compiler overlap computation is deferred to future monitor kernel stages (task-053).\n\n**Key findings:**\n- Both `GaussianOverlapMonitor` and `AstigmaticGaussianOverlapMonitor` now expose Tidy3D-aligned beam parameters (`angle_theta`, `angle_phi`, `pol_angle`, waist parameters)\n- `GaussianOverlapData` and `AstigmaticGaussianOverlapData` store complex amplitudes as JSON-safe `(real, imag)` tuples\n- `SimulationData` gained `register_gaussian_overlap_monitor()` and `register_astigmatic_gaussian_overlap_monitor()` methods\n- IR lowering preserves beam parameters via `monitor_to_ir()`\n- Both monitors added to `planning.py` feature matrix as IMPLEMENT\n\n**Artifacts:**\n- `src/autofdtd/monitors/models.py` - Updated overlap monitor models and data types\n- `src/autofdtd/monitors/__init__.py` - Exported new data types  \n- `src/autofdtd/ir/models.py` - Updated IR models with beam parameters\n- `src/autofdtd/planning.py` - Added feature entries\n- `tests/test_monitors.py` - 12 new tests for overlap monitors\n\n**next_action:** none (task complete)",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 547133",
+  "next_action": "none"
+}

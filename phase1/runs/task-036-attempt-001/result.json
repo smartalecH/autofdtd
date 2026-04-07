@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "**Task 036 completed.** All 253 tests pass.\n\n## Summary\n\nImplemented the foundational monitor naming and `SimulationData` access model for Phase 1:\n\n### Key Artifacts\n\n1. **`src/autofdtd/monitors/models.py`** \u2014 Typed monitor models (`FieldMonitor`, `FluxMonitor`, `ModeMonitor`, `PermittivityMonitor`, etc.) plus `MonitorData`, `FieldData`, `FluxData`, `ModeData`, `PermittivityData` result containers, and `SimulationData` with Tidy3D-style named access (`sim_data[\"name\"]` and `sim_data.name`).\n\n2. **`src/autofdtd/monitors/__init__.py`** \u2014 Public API exports for all monitor types and `SimulationData`.\n\n3. **`src/autofdtd/ir/models.py`** \u2014 Added 18 typed monitor IR models (`FieldMonitorIR`, `FluxMonitorIR`, `ModeMonitorIR`, etc.), `MonitorComponentIR` union type, and `monitor_to_ir()` function that lowers monitors to typed IR or falls back to generic `ComponentIR`.\n\n4. **`src/autofdtd/core/validation.py`** \u2014 Added `_normalize_monitor()` and `_PHASE1_MONITOR_TYPES` frozenset for monitor validation; updated `normalize_component()` to dispatch `context=\"monitor\"`.\n\n5. **`src/autofdtd/planning.py`** \u2014 Added `ModeSpec` and `MediumMonitor` to the feature matrix.\n\n6. **`tests/test_monitors.py`** \u2014 24 tests covering monitor naming, `SimulationData` access patterns, and IR lowering.\n\n### Key Decisions\n\n- `SimulationData.monitor_store` is excluded from serialization (runtime data, populated during execution)\n- Complex values stored as `(real, imag)` tuples for JSON stability\n- `monitor_to_ir()` falls back to generic `ComponentIR` for unknown/incomplete monitor types\n- `SimulationIR.monitors` typed as `tuple[MonitorComponentIR, ...]`",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 1319803",
+  "next_action": "none"
+}

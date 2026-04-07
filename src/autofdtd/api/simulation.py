@@ -74,12 +74,17 @@ from autofdtd.materials import (
 from autofdtd.sources import (
     BroadbandPulse,
     ContinuousWave,
+    CustomCurrentSource,
+    CustomFieldSource,
     CustomSourceTime,
     GaussianPulse,
+    PointDipole,
     Pulse,
     SourceTime,
     UniformCurrentSource,
 )
+from autofdtd.modes import ModeSpec
+from autofdtd.sources.mode import ModeSource
 
 __all__ = [
     "AutoFDTDValidationWarning",
@@ -101,6 +106,8 @@ __all__ = [
     "PMLParams",
     "ClipOperation",
     "CustomAnisotropicMedium",
+    "CustomCurrentSource",
+    "CustomFieldSource",
     "CustomMedium",
     "CustomSourceTime",
     "CustomGrid",
@@ -121,10 +128,13 @@ __all__ = [
     "Medium",
     "Medium2D",
     "ModeABCBoundary",
+    "ModeSource",
+    "ModeSpec",
     "PECMedium",
     "PECBoundary",
     "PML",
     "PMLParams",
+    "PointDipole",
     "Pulse",
     "PMCMedium",
     "PMCBoundary",

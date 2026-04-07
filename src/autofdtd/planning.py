@@ -248,12 +248,42 @@ _FEATURE_MATRIX: Final[tuple[FeatureEntry, ...]] = (
     FeatureEntry("sources", "PointDipole", FeatureStatus.IMPLEMENT, "Core localized source."),
     FeatureEntry(
         "sources",
+        "CustomCurrentSource",
+        FeatureStatus.IMPLEMENT,
+        "Custom current source with explicit field data.",
+    ),
+    FeatureEntry(
+        "sources",
+        "CustomFieldSource",
+        FeatureStatus.IMPLEMENT,
+        "Planar field source using equivalence principle.",
+    ),
+    FeatureEntry(
+        "sources",
         "ModeSource",
         FeatureStatus.IMPLEMENT,
         "High-priority photonics source.",
     ),
     FeatureEntry("sources", "PlaneWave", FeatureStatus.IMPLEMENT, "Core optical source."),
+    FeatureEntry(
+        "sources",
+        "FixedInPlaneKSpec",
+        FeatureStatus.IMPLEMENT,
+        "Angular spec for frequency-dependent plane wave angle.",
+    ),
+    FeatureEntry(
+        "sources",
+        "FixedAngleSpec",
+        FeatureStatus.IMPLEMENT,
+        "Angular spec for frequency-independent plane wave angle.",
+    ),
     FeatureEntry("sources", "GaussianBeam", FeatureStatus.IMPLEMENT, "Core optical source."),
+    FeatureEntry(
+        "sources",
+        "AstigmaticGaussianBeam",
+        FeatureStatus.IMPLEMENT,
+        "Astigmatic variant with separate x/y waist parameters.",
+    ),
     FeatureEntry(
         "sources",
         "TFSF",
@@ -295,11 +325,49 @@ _FEATURE_MATRIX: Final[tuple[FeatureEntry, ...]] = (
         "Mode workflow dependency.",
     ),
     FeatureEntry("monitors", "PermittivityMonitor", FeatureStatus.IMPLEMENT, "Validation monitor."),
+    FeatureEntry("monitors", "ModeSpec", FeatureStatus.IMPLEMENT, "Mode specification for mode monitors."),
+    FeatureEntry("monitors", "MediumMonitor", FeatureStatus.IMPLEMENT, "Medium property sampling."),
+    FeatureEntry(
+        "monitors",
+        "GaussianOverlapMonitor",
+        FeatureStatus.IMPLEMENT,
+        "Gaussian beam overlap projection monitor.",
+    ),
+    FeatureEntry(
+        "monitors",
+        "AstigmaticGaussianOverlapMonitor",
+        FeatureStatus.IMPLEMENT,
+        "Astigmatic Gaussian beam overlap with separate x/y waist parameters.",
+    ),
     FeatureEntry(
         "monitors",
         "DirectivityMonitor",
         FeatureStatus.IMPLEMENT,
         "Projection-backed subset acceptable.",
+    ),
+    FeatureEntry(
+        "monitors",
+        "FieldProjectionAngleMonitor",
+        FeatureStatus.IMPLEMENT,
+        "Far-field angle-space projection monitor.",
+    ),
+    FeatureEntry(
+        "monitors",
+        "FieldProjectionCartesianMonitor",
+        FeatureStatus.IMPLEMENT,
+        "Far-field Cartesian projection monitor.",
+    ),
+    FeatureEntry(
+        "monitors",
+        "FieldProjectionKSpaceMonitor",
+        FeatureStatus.IMPLEMENT,
+        "K-space field projection monitor.",
+    ),
+    FeatureEntry(
+        "monitors",
+        "DiffractionMonitor",
+        FeatureStatus.IMPLEMENT,
+        "Diffraction order recording monitor.",
     ),
     # Postprocessing
     FeatureEntry(

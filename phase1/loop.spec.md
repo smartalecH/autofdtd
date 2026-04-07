@@ -228,250 +228,250 @@ Last Duration: 547.3s
 Completed At: 2026-04-06T20:49:29Z
 Notes: This is the cleanest current-source family and should come before the more specialized dipole and custom cases.
 
-## [QUEUED] task-029 - Implement PointDipole and CustomCurrentSource with injection kernels
+## [COMPLETED] task-029 - Implement PointDipole and CustomCurrentSource with injection kernels
 Success: Support PointDipole and CustomCurrentSource or a clearly supported subset, including validation, IR lowering, injection-kernel support, and representative tests.
-Attempts: 88
-Last Run: task-029-attempt-088
-Last Duration: 3.1s
-Completed At: -
+Attempts: 107
+Last Run: task-029-attempt-107
+Last Duration: 1253.1s
+Completed At: 2026-04-07T02:06:49Z
 Notes: PointDipole is important because it stresses interpolation and restriction behavior directly.
 
-## [QUEUED] task-030 - Implement CustomFieldSource with field-injection runtime support
+## [COMPLETED] task-030 - Implement CustomFieldSource with field-injection runtime support
 Success: Support CustomFieldSource or a clearly delimited subset, including validation, IR lowering, field-injection runtime support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-030-attempt-001
+Last Duration: 1034.6s
+Completed At: 2026-04-07T02:24:04Z
 Notes: Keep this separate from ModeSource so the solver-coupled path stays explicit.
 
-## [QUEUED] task-031 - Implement the vector mode solver integration path
+## [COMPLETED] task-031 - Implement the vector mode solver integration path
 Success: Introduce a GPU-capable or GPU-ready mode-solver subsystem whose interface is compatible with sampled epsilon tensors over deterministic cross-sections and includes tests for representative cases.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-031-attempt-001
+Last Duration: 2393.6s
+Completed At: 2026-04-07T03:03:57Z
 Notes: Use VectorModesolver.jl as a formulation and interface reference, not as a blind dependency surface. This task intentionally lands before ModeSource and mode-monitor work.
 
-## [QUEUED] task-032 - Implement ModeSource with solver-backed mode definitions and injection support
+## [COMPLETED] task-032 - Implement ModeSource with solver-backed mode definitions and injection support
 Success: Support ModeSource with explicit integration into the mode-solver or mode-definition surface, including validation, IR lowering, source planning, injection support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-032-attempt-001
+Last Duration: 2779.6s
+Completed At: 2026-04-07T03:50:17Z
 Notes: This task comes after the mode solver on purpose so it has a real backend to target.
 
-## [QUEUED] task-033 - Implement PlaneWave plus angular-spec models and injection support
+## [COMPLETED] task-033 - Implement PlaneWave plus angular-spec models and injection support
 Success: Support PlaneWave along with the angular-spec models it needs, including validation, IR lowering, source planning, injection support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-033-attempt-001
+Last Duration: 1738.0s
+Completed At: 2026-04-07T04:19:15Z
 Notes: PlaneWave is a core optical source and should not be hidden inside a broader beam-source task.
 
-## [QUEUED] task-034 - Implement GaussianBeam and AstigmaticGaussianBeam with injection support
+## [COMPLETED] task-034 - Implement GaussianBeam and AstigmaticGaussianBeam with injection support
 Success: Support GaussianBeam and AstigmaticGaussianBeam or a clearly delimited subset, including validation, source planning, injection support, and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-034-attempt-001
+Last Duration: 164.1s
+Completed At: 2026-04-07T04:21:59Z
 Notes: Beam sources have enough parameter and geometry complexity to deserve their own task.
 
-## [QUEUED] task-035 - Implement TFSF support and source-frame policy
+## [COMPLETED] task-035 - Implement TFSF support and source-frame policy
 Success: Support the TFSF source family and any required source-frame metadata, boundary interaction logic, and runtime injection support, or provide explicit Phase 1 limitation handling.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-035-attempt-001
+Last Duration: 812.6s
+Completed At: 2026-04-07T04:35:32Z
 Notes: TFSF is important enough to deserve its own task because of its runtime implications.
 
-## [QUEUED] task-036 - Implement the monitor naming and SimulationData access model
+## [COMPLETED] task-036 - Implement the monitor naming and SimulationData access model
 Success: Provide the foundational monitor naming, result-registration, and SimulationData-style access pattern that later monitor tasks will populate.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-036-attempt-001
+Last Duration: 1322.3s
+Completed At: 2026-04-07T04:57:34Z
 Notes: This is the common data contract for all monitor feature families.
 
-## [QUEUED] task-037 - Implement field-monitor families for FieldMonitor, FieldTimeMonitor, and AuxFieldTimeMonitor
+## [COMPLETED] task-037 - Implement field-monitor families for FieldMonitor, FieldTimeMonitor, and AuxFieldTimeMonitor
 Success: Support the core field-monitor families with runtime state, accumulation kernels, and tests for representative field recording cases.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-037-attempt-001
+Last Duration: 4806.8s
+Completed At: 2026-04-07T06:17:41Z
 Notes: These are the bread-and-butter monitor types and should be ready before more specialized monitors.
 
-## [QUEUED] task-038 - Implement medium-property monitors for MediumMonitor and PermittivityMonitor
+## [COMPLETED] task-038 - Implement medium-property monitors for MediumMonitor and PermittivityMonitor
 Success: Support the main medium-property monitor families, integrate them with the geometry-material compilation path, and provide the extraction kernels or runtime paths they need.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-038-attempt-001
+Last Duration: 991.6s
+Completed At: 2026-04-07T06:34:12Z
 Notes: These monitors help validate materialization and geometry lowering directly.
 
-## [QUEUED] task-039 - Implement flux-monitor families for FluxMonitor and FluxTimeMonitor
+## [COMPLETED] task-039 - Implement flux-monitor families for FluxMonitor and FluxTimeMonitor
 Success: Support the core flux-monitor families with integration behavior, flux-integration kernels, data products, and tests for representative energy-flow setups.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-039-attempt-001
+Last Duration: 718.6s
+Completed At: 2026-04-07T06:46:11Z
 Notes: Flux monitoring is foundational for many optical validation examples.
 
-## [QUEUED] task-040 - Implement mode-monitor families for ModeMonitor and ModeSolverMonitor
+## [COMPLETED] task-040 - Implement mode-monitor families for ModeMonitor and ModeSolverMonitor
 Success: Support the main mode-monitor families, connect them to the mode-solver or mode-analysis surface expected in Phase 1, and provide the overlap or projection kernels they require.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-040-attempt-001
+Last Duration: 641.4s
+Completed At: 2026-04-07T06:56:52Z
 Notes: These monitors bridge runtime fields and the mode-solver subsystem, so they come after the mode solver intentionally.
 
-## [QUEUED] task-041 - Implement overlap-monitor families for GaussianOverlapMonitor variants
+## [COMPLETED] task-041 - Implement overlap-monitor families for GaussianOverlapMonitor variants
 Success: Provide GaussianOverlapMonitor and AstigmaticGaussianOverlapMonitor support or a documented and enforced defer policy consistent with the feature matrix.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-041-attempt-001
+Last Duration: 549.8s
+Completed At: 2026-04-07T07:06:02Z
 Notes: This task is narrow on purpose so its scope stays clear.
 
-## [QUEUED] task-042 - Implement projection and far-field monitor families
+## [COMPLETED] task-042 - Implement projection and far-field monitor families
 Success: Support FieldProjectionAngleMonitor, FieldProjectionCartesianMonitor, FieldProjectionKSpaceMonitor, and DirectivityMonitor or a documented Phase 1 subset with clear error behavior and explicit projection-kernel support.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-042-attempt-001
+Last Duration: 1314.2s
+Completed At: 2026-04-07T07:27:56Z
 Notes: Projection monitors have many edge cases, so keep the task focused and explicit.
 
-## [QUEUED] task-043 - Implement DiffractionMonitor and diffraction-specific limitations
+## [COMPLETED] task-043 - Implement DiffractionMonitor and diffraction-specific limitations
 Success: Provide DiffractionMonitor support or a narrow supported subset with explicit validation for unsupported order-count or medium constraints and the corresponding diffraction-kernel support.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-043-attempt-001
+Last Duration: 594.9s
+Completed At: 2026-04-07T07:37:51Z
 Notes: Diffraction is important enough to split out from the other projection monitors.
 
-## [QUEUED] task-044 - Implement surface-field monitor families
+## [COMPLETED] task-044 - Implement surface-field monitor families
 Success: Support SurfaceFieldMonitor and SurfaceFieldTimeMonitor or a documented subset with explicit runtime behavior, surface-sampling kernels, and tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-044-attempt-001
+Last Duration: 743.1s
+Completed At: 2026-04-07T07:50:14Z
 Notes: Surface monitors are useful both directly and as building blocks for postprocessing.
 
-## [QUEUED] task-045 - Build the scene-compilation pipeline from public API and IR into compiled runtime artifacts
+## [COMPLETED] task-045 - Build the scene-compilation pipeline from public API and IR into compiled runtime artifacts
 Success: Document and begin implementing a compiler-style pipeline that lowers validated public API objects into IR and then into coefficient fields, source plans, monitor plans, chunk metadata, and runtime arrays.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-045-attempt-001
+Last Duration: 883.7s
+Completed At: 2026-04-07T08:04:58Z
 Notes: This task ties the feature-specific surfaces into an executable spine.
 
-## [QUEUED] task-046 - Implement geometry discretization, interpolation, and subpixel materialization
+## [COMPLETED] task-046 - Implement geometry discretization, interpolation, and subpixel materialization
 Success: Build the geometry-to-grid compilation path that handles precedence, interpolation or restriction concerns, coefficient sampling, and a scoped first pass at subpixel smoothing with tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-046-attempt-001
+Last Duration: 1789.6s
+Completed At: 2026-04-07T08:34:48Z
 Notes: This is where the geometry and material feature families become runtime data. Second-order subpixel smoothing depends on the anisotropic material path already existing.
 
-## [QUEUED] task-047 - Define the chunk contract and multi-node decomposition architecture
+## [COMPLETED] task-047 - Define the chunk contract and multi-node decomposition architecture
 Success: Land an architecture note that defines what a chunk owns, how chunks expose halo and monitor metadata, how chunk placement maps onto devices or nodes, and how this avoids blocking later phases.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-047-attempt-001
+Last Duration: 439.9s
+Completed At: 2026-04-07T08:42:08Z
 Notes: Base this on the Meep findings that chunk is the core architectural unit rather than rank.
 
-## [QUEUED] task-048 - Define Warp backend conventions and instrumentation strategy
+## [COMPLETED] task-048 - Define Warp backend conventions and instrumentation strategy
 Success: Document and implement the initial Warp backend conventions for module organization, dtype or device policy, persistent arrays, capture-safe stepping, and profiling hooks.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-048-attempt-001
+Last Duration: 704.0s
+Completed At: 2026-04-07T08:53:51Z
 Notes: This task establishes backend guardrails before the heavy kernels land.
 
-## [QUEUED] task-049 - Implement vacuum Yee update kernels and the capture-safe step skeleton
+## [COMPLETED] task-049 - Implement vacuum Yee update kernels and the capture-safe step skeleton
 Success: Document and implement the explicit vacuum E and H update kernels, field staggering rules, and capture-safe step skeleton with clear launch ordering and representative tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-049-attempt-001
+Last Duration: 845.6s
+Completed At: 2026-04-07T09:07:57Z
 Notes: This task isolates the core timestepping spine before material, boundary, and source complications are layered on.
 
-## [QUEUED] task-050 - Implement constitutive and material-update kernel stages
+## [COMPLETED] task-050 - Implement constitutive and material-update kernel stages
 Success: Provide the constitutive and material-update kernel stages needed for isotropic, dispersive, and anisotropic materials that Phase 1 claims to support, with clear staging and tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-050-attempt-001
+Last Duration: 1526.1s
+Completed At: 2026-04-07T09:33:23Z
 Notes: This task ties the material feature tasks into the runtime in an explicit way.
 
-## [QUEUED] task-051 - Implement boundary and absorbing-layer kernel stages
+## [COMPLETED] task-051 - Implement boundary and absorbing-layer kernel stages
 Success: Provide the explicit runtime or kernel stages needed for conductor boundaries, periodic or Bloch remapping, and absorbing-layer updates claimed by Phase 1.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-051-attempt-001
+Last Duration: 2789.2s
+Completed At: 2026-04-07T10:19:52Z
 Notes: Keep boundary runtime support separate from source and material kernel work.
 
-## [QUEUED] task-052 - Implement source-injection kernel stages and source scheduling
+## [COMPLETED] task-052 - Implement source-injection kernel stages and source scheduling
 Success: Provide the explicit kernel or runtime stages for current-source, field-source, beam, plane-wave, and TFSF injection claimed by Phase 1, with clear scheduling semantics and tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-052-attempt-001
+Last Duration: 520.8s
+Completed At: 2026-04-07T10:28:33Z
 Notes: This task keeps source runtime support visible instead of scattering it across API-only tasks.
 
-## [QUEUED] task-053 - Implement monitor accumulation, projection, and extraction kernel stages
+## [COMPLETED] task-053 - Implement monitor accumulation, projection, and extraction kernel stages
 Success: Provide the explicit runtime or kernel stages needed for field, flux, mode, projection, diffraction, and surface-monitor accumulation and extraction claimed by Phase 1.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-053-attempt-001
+Last Duration: 1509.3s
+Completed At: 2026-04-07T10:53:43Z
 Notes: This task makes the monitor runtime spine concrete instead of assuming monitor API support implies executable support.
 
-## [QUEUED] task-054 - Implement chunk-aware runtime orchestration and staged halo exchange
+## [COMPLETED] task-054 - Implement chunk-aware runtime orchestration and staged halo exchange
 Success: Create runtime components that partition compiled scenes into chunks, manage stage-specific halo metadata, and provide the halo pack, unpack, and exchange kernel support needed for chunk-aware control flow.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-054-attempt-001
+Last Duration: 709.3s
+Completed At: 2026-04-07T11:05:32Z
 Notes: Keep this bulk-synchronous and credible first; overlap and advanced scheduling can stay as later extensions.
 
-## [QUEUED] task-055 - Wire the public API to normalization, IR lowering, and execution entrypoints
+## [COMPLETED] task-055 - Wire the public API to normalization, IR lowering, and execution entrypoints
 Success: Users can define nontrivial Tidy3D-style simulations, have them normalized and lowered into the IR, inspect or serialize that IR, and execute them through the same backend entrypoints.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-055-attempt-001
+Last Duration: 496.6s
+Completed At: 2026-04-07T11:13:48Z
 Notes: This task should prove that execution is driven by the IR rather than the original Python object graph.
 
-## [QUEUED] task-056 - Implement runtime metrics, benchmark helpers, and execution evidence capture
+## [COMPLETED] task-056 - Implement runtime metrics, benchmark helpers, and execution evidence capture
 Success: Execution paths emit initialization time, JIT time, steady-state timestep metrics, Gcells-per-second style metrics, and other key runtime evidence in a structured and testable form.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-056-attempt-001
+Last Duration: 629.8s
+Completed At: 2026-04-07T11:24:18Z
 Notes: This task should align with the Warp instrumentation strategy and the GPU benchmarking paper.
 
-## [QUEUED] task-057 - Implement near-to-far and related postprocessing on top of the monitor infrastructure
+## [COMPLETED] task-057 - Implement near-to-far and related postprocessing on top of the monitor infrastructure
 Success: Provide an initial near-to-far workflow and other key postprocessing routines that build on the DFT monitor foundation and include the postprocessing-kernel support they require, backed by examples or tests.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-057-attempt-001
+Last Duration: 1842.8s
+Completed At: 2026-04-07T11:55:01Z
 Notes: Do not implement near-to-far as a disconnected special case.
 
-## [QUEUED] task-058 - Create canonical validation examples and feature-integration tests
+## [COMPLETED] task-058 - Create canonical validation examples and feature-integration tests
 Success: Land runnable validation examples and automated tests that exercise the implemented Phase 1 feature families, including vacuum propagation, dielectric slab or waveguide, PML boundaries, symmetry-reduced behavior, source injection, monitor recording, mode-source or mode-monitor workflows, convergence or shutoff behavior, and near-to-far or diffraction-related workflows where supported.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-058-attempt-001
+Last Duration: 4505.2s
+Completed At: 2026-04-07T13:10:06Z
 Notes: These examples should become the evidence base for both feature coverage and later validation work.
 
-## [QUEUED] task-059 - Finish README, feature coverage docs, unsupported-feature policy, and Phase 1 readiness summary
+## [COMPLETED] task-059 - Finish README, feature coverage docs, unsupported-feature policy, and Phase 1 readiness summary
 Success: Document architecture, current feature coverage against the Tidy3D matrix, unsupported-feature behavior, developer workflows, and the evidence that Phase 1 is ready to hand into deeper validation and optimization phases.
-Attempts: 0
-Last Run: -
-Last Duration: -
-Completed At: -
+Attempts: 1
+Last Run: task-059-attempt-001
+Last Duration: 795.1s
+Completed At: 2026-04-07T13:23:21Z
 Notes: This task should consolidate the Phase 1 evidence base rather than inventing new architecture.

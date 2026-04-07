@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "Task-039 is complete. Here's the summary:\n\n## Summary\n\nSuccessfully implemented flux monitor families for `FluxMonitor` and `FluxTimeMonitor` with full integration, recording kernels, and validation tests.\n\n### Key Findings\n\n- **Flux normal axis inference**: Derived from monitor size (dimension with size=0), raising `ValueError` for non-2D surfaces\n- **Poynting vector flux**: `accumulate_flux()` computes `S = E \u00d7 H` surface integral; axis-specific formulas for x/y/z normals\n- **Time-domain vs frequency-domain**: `FluxTimeMonitor` always time-domain; `FluxMonitor` with `freqs` becomes frequency-domain (DFT accumulation)\n- **FluxData format**: Time-domain stores real floats; frequency-domain stores complex `(real, imag)` tuples for JSON stability\n\n### Artifacts\n\n| Path | Description |\n|------|-------------|\n| `src/autofdtd/compiler/monitors.py` | Added `CompiledFluxMonitor`, `FluxMonitorState`, `compile_flux_monitor()`, `_infer_flux_normal_axis()` |\n| `src/autofdtd/runtime/monitors.py` | Added `build_flux_monitor_runtime()`, `record_monitor_flux()`, `extract_flux_monitor_data()` |\n| `src/autofdtd/kernels/monitors.py` | Added `flux_monitor_kernel_metadata()`, `record_flux_time_domain()`, `record_flux_frequency_domain()` |\n| `src/autofdtd/monitors/models.py` | Updated `FluxData.flux` type to support both `tuple[float, ...]` and `tuple[tuple[float, float], ...]` |\n| `tests/test_monitors_flux.py` | 39 tests covering compilation, recording, IR lowering, and energy-flow validation |\n\n### Test Results\n- All 39 flux monitor tests pass\n- All 107 monitor tests pass (field + medium + flux)\n- All 220 broader tests pass",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 713317",
+  "next_action": "none"
+}

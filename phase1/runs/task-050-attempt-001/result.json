@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "542 tests passing, task-050 implementation complete. The constitutive and material-update kernel stages are fully implemented:\n\n- **`electric_update_3d_coeff` / `magnetic_update_3d_coeff`**: Coefficient-aware isotropic updates using precompiled `e_decay`/`e_drive` arrays with CLAMP_ZERO mode support\n- **`pole_residue_electric_update_3d` / `pole_residue_polarization_update_3d`**: Dispersive PoleResidue media with complex per-pole auxiliary state\n- **`anisotropic_electric_update_3d` / `anisotropic_magnetic_update_3d`**: Diagonal tensor media with per-axis coefficient branches\n\nAll kernels are exported from `kernels/__init__.py` and verified by 25 constitutive tests in `test_kernels_constitutive.py`.",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 1523588",
+  "next_action": "none"
+}

@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "Task-034 (GaussianBeam and AstigmaticGaussianBeam) implementation is complete. All 217 tests pass.\n\n**Summary of changes:**\n\n1. **New file: `src/autofdtd/sources/beam.py`**\n   - `GaussianBeam` class with waist_radius, waist_distance parameters\n   - `AstigmaticGaussianBeam` class with waist_radius_x, waist_radius_y, waist_distance_x, waist_distance_y parameters\n   - Both support angular specs (FixedInPlaneKSpec, FixedAngleSpec), direction, polarization\n\n2. **Modified `src/autofdtd/ir/models.py`**\n   - Added `GaussianBeamIR` and `AstigmaticGaussianBeamIR` typed IR models\n   - Updated `SourceComponentIR` union to include new IR types\n   - Updated `component_to_ir` and `source_to_ir` to handle new beam types\n\n3. **Modified `src/autofdtd/compiler/sources.py`**\n   - Added `CompiledGaussianBeam` and `CompiledAstigmaticGaussianBeam` dataclasses\n   - Added `compile_gaussian_beam` and `compile_astigmatic_gaussian_beam` functions\n   - Added Gaussian envelope weight computation\n\n4. **Modified `src/autofdtd/kernels/sources.py`**\n   - Added `inject_gaussian_beam` and `inject_astigmatic_gaussian_beam` functions\n   - Both use equivalence principle with Gaussian spatial envelope\n\n5. **Modified `src/autofdtd/runtime/sources.py`**\n   - Added `build_gaussian_beam_runtime` and `apply_gaussian_beam_sources`\n   - Added `build_astigmatic_gaussian_beam_runtime` and `apply_astigmatic_gaussian_beam_sources`\n\n6. **Modified `src/autofdtd/planning.py`**\n   - Added `AstigmaticGaussianBeam` feature entry\n\n7. **New file: `tests/test_sources_beam.py`**\n   - 13 comprehensive tests covering validation, properties, IR lowering, compilation, injection, runtime\n\n8. **Updated exports** in `compiler/__init__.py`, `kernels/__init__.py`, `ir/__init__.py`, `runtime/__init__.py`, and `sources/__init__.py`",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 1735566",
+  "next_action": "none"
+}

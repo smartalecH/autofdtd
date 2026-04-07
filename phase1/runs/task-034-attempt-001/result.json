@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "## Summary\n\n**task-034 completed** - GaussianBeam and AstigmaticGaussianBeam with injection support.\n\n### What was implemented:\n\n**Public API** (`src/autofdtd/sources/beam.py`):\n- `GaussianBeam` - focused Gaussian beam with waist_radius, waist_distance, direction, angle_theta/phi, pol_angle, angular_spec support\n- `AstigmaticGaussianBeam` - separate waist radii (x/y) and waist distances (x/y)\n\n**IR lowering** (`src/autofdtd/ir/models.py`):\n- `GaussianBeamIR` and `AstigmaticGaussianBeamIR` with typed beam-specific fields\n\n**Compiler** (`src/autofdtd/compiler/sources.py`):\n- `compile_gaussian_beam()` and `compile_astigmatic_gaussian_beam()`\n- `CompiledGaussianBeam` and `CompiledAstigmaticGaussianBeam` with Gaussian envelope weight computation\n\n**Kernels** (`src/autofdtd/kernels/sources.py`):\n- `inject_gaussian_beam()` and `inject_astigmatic_gaussian_beam()` using equivalence principle (J = n \u00d7 H, M = -n \u00d7 E)\n\n**Runtime** (`src/autofdtd/runtime/sources.py`):\n- `build_gaussian_beam_runtime`, `apply_gaussian_beam_sources`\n- `build_astigmatic_gaussian_beam_runtime`, `apply_astigmatic_gaussian_beam_sources`\n\n**Tests**: 13 tests pass covering validation, IR lowering, compilation, injection kernels, and runtime integration.\n\n### Key findings:\n- Beam injection uses planar (sheet) geometry with exactly one zero-size dimension\n- Gaussian envelope weights computed from waist radii and cell center positions\n- Direction/polarization vectors properly rotated for off-axis injection angles\n- Phase 1 scope: narrow Gaussian beam support without beam waist evolution during propagation",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 161717",
+  "next_action": "none"
+}

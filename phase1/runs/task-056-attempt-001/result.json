@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "\n\n**Task 056 \u2014 completed**\n\nCreated structured runtime metrics and benchmark helpers in `src/autofdtd/diagnostics/metrics.py`:\n\n- **`BenchmarkMetadata`** \u2014 grid shape, cell count, precision, boundary/material class, multi-GPU flags\n- **`InitializationTiming` / `JitTiming` / `SteadyStateTiming` / `EndToEndTiming`** \u2014 phase-separated timing with sub-markers for initialization steps (grid resolution, scene materialization, coefficient compilation, source/monitor/boundary planning, chunk layout)\n- **`StepEvidence`** \u2014 per-step wall time, integrated electric, Gcells/s\n- **`BenchmarkResult`** \u2014 end-to-end result bundle including steady-state and end-to-end Gcells/s, initialization/JIT times, stop reason, backend info\n- **`BenchmarkTimer`** \u2014 hierarchical context-manager timer with `phase()` and `mark()` for tracking initialization sub-phases\n- **`compute_gcells_per_second()` / `compute_cells_per_second()`** \u2014 cells/s style metrics\n- **`build_benchmark_metadata()` / `build_steady_state_timing()` / `benchmark_from_execution_log()`** \u2014 builder helpers for constructing metrics from execution data\n\nAll exports available from `autofdtd.diagnostics`. Added `benchmark_snapshot()` to examples and 29 tests covering all new types (628 total tests pass).\n\n**Key findings:**\n- `BenchmarkResult` and `BenchmarkExecutionEvidence` use plain `@dataclass(frozen=True)` to avoid Pydantic's required `type` field on `AutoFDTDModel` subclasses\n- `BenchmarkTimer` uses `phase()` as both context manager and direct call \u2014 use `timer.phase(\"name\")` to start and `timer.phase(None)` to end, or `with timer.phase(\"name\"):` for automatic cleanup\n- `benchmark_from_execution_log()` consumes `RuntimeExecutionLog` from `diagnostics.runtime_logging` to produce a structured `BenchmarkResult` bundle",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 627238",
+  "next_action": "none"
+}

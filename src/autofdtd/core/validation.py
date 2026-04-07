@@ -63,6 +63,7 @@ from autofdtd.materials import (
     medium_model_from_value,
 )
 from autofdtd.planning import FeatureStatus, feature_entry
+from autofdtd.monitors import monitor_model_from_value
 from autofdtd.sources import UniformCurrentSource, current_source_model_from_value
 
 Vec3 = tuple[float, float, float]
@@ -132,6 +133,27 @@ _PLANNED_GRID_TYPES = frozenset(
         "QuasiUniformGrid",
     }
 )
+_PHASE1_MONITOR_TYPES = frozenset({
+    "Monitor",
+    "FieldMonitor",
+    "FieldTimeMonitor",
+    "AuxFieldTimeMonitor",
+    "FluxMonitor",
+    "FluxTimeMonitor",
+    "ModeMonitor",
+    "ModeSolverMonitor",
+    "MediumMonitor",
+    "PermittivityMonitor",
+    "FieldProjectionAngleMonitor",
+    "FieldProjectionCartesianMonitor",
+    "FieldProjectionKSpaceMonitor",
+    "DiffractionMonitor",
+    "DirectivityMonitor",
+    "GaussianOverlapMonitor",
+    "AstigmaticGaussianOverlapMonitor",
+    "SurfaceFieldMonitor",
+    "SurfaceFieldTimeMonitor",
+})
 
 
 class AutoFDTDValidationWarning(UserWarning):
@@ -197,6 +219,8 @@ def normalize_component(component: object, *, context: str) -> object:
         return _normalize_medium(normalized)
     if context == "source":
         return _normalize_source(normalized)
+    if context == "monitor":
+        return _normalize_monitor(normalized)
     return normalized
 
 
@@ -569,6 +593,19 @@ def _normalize_source(component: object) -> object:
     if source_type != "UniformCurrentSource":
         return component
     return current_source_model_from_value(component).model_dump(mode="python", exclude_none=True)
+
+
+def _normalize_monitor(component: object) -> object:
+    """Normalize a monitor component using the monitor model factory."""
+    if isinstance(component, BaseModel):
+        return component
+    if not isinstance(component, Mapping):
+        return component
+    monitor_type = component_type_name(component)
+    # If it's a recognized monitor type, validate via the model factory
+    if monitor_type is not None and monitor_type != "Monitor":
+        return monitor_model_from_value(component).model_dump(mode="python", exclude_none=True)
+    return component
 
 
 def _supports_phase1_clip_operation(component: object) -> bool:

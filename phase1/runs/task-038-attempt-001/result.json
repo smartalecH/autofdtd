@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "**Summary: task-038 completed successfully.**\n\n## Key findings\n\n- `MediumMonitor` records diagonal components of complex-valued relative permittivity AND permeability tensor in the frequency domain (stored as 6 components: eps_xx, eps_yy, eps_zz, mu_xx, mu_yy, mu_zz)\n- `PermittivityMonitor` records only diagonal permittivity tensor components (3 components: eps_xx, eps_yy, eps_zz), which are real-valued for Phase 1\n- Both monitor types are frequency-domain (DFT-based), but unlike field monitors which accumulate per timestep, medium property monitors sample static scene material properties once at setup\n- Medium monitor data uses `(real, imag)` tuples for complex values (JSON-safe); PermittivityData uses plain floats\n\n## Artifacts\n\n| Path | Description |\n|------|-------------|\n| `src/autofdtd/monitors/models.py` | Added `MediumMonitorData` model + `register_medium_monitor` on `SimulationData` |\n| `src/autofdtd/monitors/__init__.py` | Exported `MediumMonitorData` |\n| `src/autofdtd/compiler/monitors.py` | Added `CompiledMediumMonitor`, `MediumMonitorState`, `compile_medium_monitor()` |\n| `src/autofdtd/runtime/monitors.py` | Added `build_medium_monitor_runtime()`, `extract_medium_monitor_data()` |\n| `src/autofdtd/kernels/monitors.py` | Added `medium_monitor_kernel_metadata()`, `sample_medium_at_points()`, `record_medium_monitor()` |\n| `tests/test_monitors_medium.py` | 21 tests covering models, compilation, state, data extraction, registration |\n\nAll 297 tests pass (including the 21 new medium monitor tests).",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 989031",
+  "next_action": "none"
+}

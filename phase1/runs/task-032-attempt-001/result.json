@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "Task-032 implementation is complete. Here's a summary:\n\n## ModeSource Implementation Summary\n\n### What was implemented:\n1. **ModeSource model** (`src/autofdtd/sources/mode.py`) - Planar source using mode solver for field profile\n2. **ModeSourceIR** - IR lowering with mode solver fields (e_fields, h_fields, mode_neff, mode_power)\n3. **CompiledModeSource** + `compile_mode_source()` - Compiles ModeSource using mode solver\n4. **inject_mode_source** kernel - Applies equivalence principle for mode injection\n5. **Runtime helpers** - `build_mode_source_runtime()` and `apply_mode_sources()`\n6. **Exports** - ModeSource exported via `api/__init__.py` and `api/simulation.py`\n\n### Bug fixes during testing:\n1. **Frequency**: Tests initially used `freq0=1.0` Hz (wavelength = 300,000 km) which didn't resolve modes. Fixed to use optical frequency `_OPTICAL_FREQ = 1.93e14` Hz (~1550nm)\n2. **Scene setup**: Changed from empty `Scene(medium=Medium(1.0))` to proper waveguide scene with Box structure\n3. **Grid size mismatch**: Mode solver produces fields on `(nx-1) x (ny-1)` grid due to staggered formulation. Fixed `compile_mode_source` to use `field_nx = nx - 1, field_ny = ny - 1` for reshaping\n4. **Complex field casting**: Removed `float()` casts in `inject_mode_source` that were discarding imaginary parts\n\n### Test results:\n- All 7 ModeSource tests pass\n- All 172 tests in the full test suite pass  \n- All 22 sources_current tests pass",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 2777013",
+  "next_action": "none"
+}

@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "## task-055 Complete\n\n**Summary:** Wired the public API to normalization, IR lowering, and execution entrypoints. Users can now define Tidy3D-style simulations, have them normalized and lowered into the IR, inspect/serialize that IR, and execute through the same backend entrypoints.\n\n**Key findings:**\n\n1. **Public API now exposes execution entrypoints** (`src/autofdtd/api/__init__.py`):\n   - `compile_simulation`, `simulation_to_ir`, `simulation_to_execution_package`\n   - `RuntimeController`, `build_runtime_controller`, `run_until_stop`, `run_until_stop_with_logging`\n\n2. **Execution is driven by IR, not Python objects** \u2014 `CompiledSimulation` contains a frozen `simulation_ir` snapshot plus compiled artifacts (coefficients, placements, chunk metadata). Modifying the original `Simulation` after compilation does not affect compiled artifacts.\n\n3. **Created integration example** (`src/autofdtd/examples/integration.py`) demonstrating the full API\u2192IR\u2192execution pipeline with structured output.\n\n4. **Created 32 integration tests** (`tests/test_integration_api_ir_execution.py`) proving the architectural contract.\n\n**Artifacts:**\n- `src/autofdtd/api/__init__.py` \u2014 updated with execution entrypoints\n- `src/autofdtd/examples/integration.py` \u2014 full pipeline demonstration\n- `tests/test_integration_api_ir_execution.py` \u2014 32 integration tests\n- `phase1/working-memory.md` \u2014 updated with task-055 facts\n\n**All 664 tests pass.**",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 494128",
+  "next_action": "none"
+}

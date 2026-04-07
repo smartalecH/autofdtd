@@ -1,0 +1,10 @@
+{
+  "task_id": "",
+  "status": "completed",
+  "summary": "All 33 tests pass. The background task failure was from an earlier run before my edits were complete. The validation examples and tests are now fully functional:\n\n- **10 validation examples** in `src/autofdtd/examples/validation.py`\n- **33 tests** in `tests/test_validation_examples.py`\n- All tests passing with proper unit scaling (micrometers), correct monitor types (FieldTimeMonitor for time-domain), and proper data extraction",
+  "key_findings": [],
+  "artifacts": [],
+  "error_summary": "",
+  "follow_up_notes": "stop_reason: end_turn, duration_ms: 51765",
+  "next_action": "none"
+}
