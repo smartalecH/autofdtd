@@ -31,9 +31,9 @@ Device Management
 
 Array Conventions
 ----------------
-- Field arrays: ``wp.array(dtype=wp.float32 or wp.complex64, shape=(Nx, Ny, Nz, 3))``
+- Field arrays: ``wp.array(dtype=wp.float32, shape=(Nx, Ny, Nz, 3))``
 - Coefficient arrays: ``wp.array(dtype=wp.float32, shape=(Nx, Ny, Nz))``
-- Auxiliary state: ``wp.array(dtype=wp.complex64, shape=(num_poles, Nx, Ny, Nz))``
+- Auxiliary state: ``wp.array(dtype=wp.float32, shape=(num_poles, Nx, Ny, Nz))``
 - All arrays are allocated on the target device; no managed memory unless explicit.
 
 Dtype Policy
@@ -134,13 +134,14 @@ WARP_AVAILABLE = wp is not None
 # ---------------------------------------------------------------------------
 
 
-def get_warp_device(device_id: int | None = None) -> "wp.Device | None":
+def get_warp_device(device_id: int | str | None = None) -> "wp.Device | None":
     """Return a Warp device for array allocation.
 
     Parameters
     ----------
-    device_id : int, optional
-        Specific GPU ID. If None, returns the current default device.
+    device_id : int, str, or None, optional
+        Specific GPU ID as integer (0, 1, ...) or Warp device string
+        (e.g., "cuda:0", "cuda:1"). If None, returns the current default device.
 
     Returns
     -------
@@ -156,6 +157,9 @@ def get_warp_device(device_id: int | None = None) -> "wp.Device | None":
         return None
     if device_id is None:
         return wp.get_device()
+    # Handle integer device IDs by converting to Warp device string
+    if isinstance(device_id, int):
+        return wp.get_device(f"cuda:{device_id}")
     return wp.get_device(device_id)
 
 
@@ -256,8 +260,7 @@ def allocate_field_array(
     family : "electric" or "magnetic"
         Which field family this array holds.
     dtype : wp.dtype, optional
-        Array dtype. Defaults to wp.float32 for real fields,
-        wp.complex64 for complex fields.
+        Array dtype. Defaults to wp.float32 for real fields.
     device : wp.Device, optional
         Target device. Uses default device if None.
     chunk_index : tuple, optional
@@ -284,7 +287,7 @@ def allocate_field_array(
         dtype = wp.float32
 
     alloc_shape = (*shape, 3)
-    arr = wp.array(shape=alloc_shape, dtype=dtype, device=device, zero=True)
+    arr = wp.zeros(shape=alloc_shape, dtype=dtype, device=device)
 
     if tag:
         arr.tag = FieldArrayTag(family=family, chunk_index=chunk_index)
@@ -335,7 +338,7 @@ def allocate_coefficient_array(
     if dtype is None:
         dtype = wp.float32
 
-    arr = wp.array(shape=shape, dtype=dtype, device=device, zero=True)
+    arr = wp.zeros(shape=shape, dtype=dtype, device=device)
 
     if tag:
         arr.tag = CoefficientArrayTag(
@@ -385,11 +388,12 @@ def allocate_auxiliary_array(
 
         return np.zeros((num_poles, *shape), dtype=np.complex128)
 
+    # Warp does not have complex64 in version 1.12.1; use float32
     if dtype is None:
-        dtype = wp.complex64
+        dtype = wp.float32
 
     alloc_shape = (num_poles, *shape)
-    arr = wp.array(shape=alloc_shape, dtype=dtype, device=device, zero=True)
+    arr = wp.zeros(shape=alloc_shape, dtype=dtype, device=device)
 
     if tag:
         arr.tag = AuxiliaryArrayTag(

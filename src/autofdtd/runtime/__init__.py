@@ -2,6 +2,7 @@
 
 from autofdtd.runtime.boundaries import (
     BoundaryRuntime,
+    CrossDeviceHaloTransfer,
     allocate_abc_boundary_state,
     allocate_pml_boundary_state,
     apply_compiled_boundaries,
@@ -94,6 +95,7 @@ from autofdtd.runtime.near2far import (
 __all__ = [
     "BoundaryRuntime",
     "ChunkHaloExchange",
+    "CrossDeviceHaloTransfer",
     "ChunkLayout",
     "ChunkSpec",
     "ExchangeDescriptor",

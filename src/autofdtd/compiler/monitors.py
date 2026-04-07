@@ -8,6 +8,7 @@ from typing import Literal
 import numpy as np
 
 from autofdtd.grid import ResolvedGrid
+from autofdtd.kernels.backend import WARP_AVAILABLE
 
 
 @dataclass(frozen=True)
@@ -285,6 +286,15 @@ class FieldMonitorState:
             return np.zeros(len(self.compiled.placements), dtype=np.complex128)
 
         is_electric = field[1].lower() == "x"  # Ex, Ey, Ez are electric
+
+        # Convert Warp arrays to numpy if needed
+        if WARP_AVAILABLE:
+            import warp as wp
+
+            if isinstance(electric_field, wp.array):
+                electric_field = electric_field.numpy()
+            if isinstance(magnetic_field, wp.array):
+                magnetic_field = magnetic_field.numpy()
 
         if len(self.compiled.placements) == 1:
             idx = self.compiled.placements[0]

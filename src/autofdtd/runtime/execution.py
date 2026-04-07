@@ -31,8 +31,62 @@ from typing import Any, Literal
 
 import numpy as np
 
+try:
+    import warp as wp
+except ModuleNotFoundError:
+    wp = None
+
 from autofdtd.kernels.backend import WARP_AVAILABLE, ComplexFieldPolicy
 from autofdtd.kernels.steps import allocate_maxwell_arrays, step_maxwell
+
+
+def _compute_field_magnitude_sq(field_array: "wp.array | np.ndarray") -> float:
+    """Compute sum of |E|^2 over the entire field array.
+
+    GPU path: launches a Warp reduction kernel directly on device.
+    CPU path: NumPy computation.
+    """
+    if WARP_AVAILABLE:
+        import warp as wp
+
+        if isinstance(field_array, wp.array):
+            return _gpu_field_magnitude_sq(field_array)
+        arr = field_array
+    else:
+        arr = field_array
+
+    return float(np.sum(np.abs(arr) ** 2))
+
+
+if WARP_AVAILABLE:
+
+    @wp.kernel
+    def _field_magnitude_sq_kernel(E: wp.array(dtype=wp.float32, ndim=4), result: wp.array(dtype=wp.float32, ndim=1)):
+        """Sum |E|^2 over all cells and component axes."""
+        i, j, k = wp.tid()
+        nx, ny, nz = E.shape[0], E.shape[1], E.shape[2]
+        if i >= nx or j >= ny or k >= nz:
+            return
+        # Sum squared components for this cell
+        s = wp.float32(0.0)
+        for c in range(3):
+            val = E[i, j, k, c]
+            s += val * val
+        wp.atomic_add(result, 0, s)
+
+    def _gpu_field_magnitude_sq(E: "wp.array") -> float:
+        """GPU-side reduction for |E|^2 sum using Warp atomic add."""
+        dev = E.device
+        result = wp.zeros(shape=(1,), dtype=wp.float32, device=dev)
+        nx, ny, nz = E.shape[0], E.shape[1], E.shape[2]
+        wp.launch(
+            _field_magnitude_sq_kernel,
+            dim=(nx, ny, nz),
+            inputs=[E, result],
+            device=dev,
+        )
+        wp.synchronize()
+        return float(result.numpy()[0])
 
 
 @dataclass
@@ -41,30 +95,30 @@ class FieldState:
 
     Attributes
     ----------
-    E : np.ndarray
+    E : wp.array | np.ndarray
         Electric field array with shape (nx, ny, nz, 3).
-    H : np.ndarray
+    H : wp.array | np.ndarray
         Magnetic field array with shape (nx, ny, nz, 3).
-    eps_xx, eps_yy, eps_zz : np.ndarray
+    eps_xx, eps_yy, eps_zz : wp.array | np.ndarray
         Permittivity arrays with shape (nx, ny, nz).
-    mu_xx, mu_yy, mu_zz : np.ndarray
+    mu_xx, mu_yy, mu_zz : wp.array | np.ndarray
         Permeability arrays with shape (nx, ny, nz).
-    electric_modes : np.ndarray
+    electric_modes : wp.array | np.ndarray
         Electric constitutive mode array with shape (nx, ny, nz).
-    magnetic_modes : np.ndarray
+    magnetic_modes : wp.array | np.ndarray
         Magnetic constitutive mode array with shape (nx, ny, nz).
     """
 
-    E: np.ndarray
-    H: np.ndarray
-    eps_xx: np.ndarray
-    eps_yy: np.ndarray
-    eps_zz: np.ndarray
-    mu_xx: np.ndarray
-    mu_yy: np.ndarray
-    mu_zz: np.ndarray
-    electric_modes: np.ndarray
-    magnetic_modes: np.ndarray
+    E: "wp.array | np.ndarray"
+    H: "wp.array | np.ndarray"
+    eps_xx: "wp.array | np.ndarray"
+    eps_yy: "wp.array | np.ndarray"
+    eps_zz: "wp.array | np.ndarray"
+    mu_xx: "wp.array | np.ndarray"
+    mu_yy: "wp.array | np.ndarray"
+    mu_zz: "wp.array | np.ndarray"
+    electric_modes: "wp.array | np.ndarray"
+    magnetic_modes: "wp.array | np.ndarray"
 
 
 @dataclass
@@ -107,6 +161,14 @@ class ExecutionResult:
     metrics: dict[str, Any]
 
 
+def _fill_array(arr, value):
+    """Fill an array with a value, handling both numpy and wp.array."""
+    if hasattr(arr, 'fill_'):
+        arr.fill_(value)
+    else:
+        arr.fill(value)
+
+
 def populate_material_arrays(
     field_state: FieldState,
     compiled,
@@ -129,12 +191,12 @@ def populate_material_arrays(
     nx, ny, nz = field_state.E.shape[:3]
 
     # Start with vacuum values (1.0 for normalized units)
-    field_state.eps_xx.fill(1.0)
-    field_state.eps_yy.fill(1.0)
-    field_state.eps_zz.fill(1.0)
-    field_state.mu_xx.fill(1.0)
-    field_state.mu_yy.fill(1.0)
-    field_state.mu_zz.fill(1.0)
+    _fill_array(field_state.eps_xx, 1.0)
+    _fill_array(field_state.eps_yy, 1.0)
+    _fill_array(field_state.eps_zz, 1.0)
+    _fill_array(field_state.mu_xx, 1.0)
+    _fill_array(field_state.mu_yy, 1.0)
+    _fill_array(field_state.mu_zz, 1.0)
 
     # Get background medium coefficients
     bg = compiled.scene_coefficients.background
@@ -142,13 +204,13 @@ def populate_material_arrays(
     bg_mu = getattr(bg, "permeability", 1.0)
 
     if bg_eps is not None:
-        field_state.eps_xx.fill(bg_eps)
-        field_state.eps_yy.fill(bg_eps)
-        field_state.eps_zz.fill(bg_eps)
+        _fill_array(field_state.eps_xx, bg_eps)
+        _fill_array(field_state.eps_yy, bg_eps)
+        _fill_array(field_state.eps_zz, bg_eps)
     if bg_mu is not None:
-        field_state.mu_xx.fill(bg_mu)
-        field_state.mu_yy.fill(bg_mu)
-        field_state.mu_zz.fill(bg_mu)
+        _fill_array(field_state.mu_xx, bg_mu)
+        _fill_array(field_state.mu_yy, bg_mu)
+        _fill_array(field_state.mu_zz, bg_mu)
 
     # Apply structure coefficients (simplified - just apply first structure as override)
     # Full implementation would use the materialized grid with structure overlap
@@ -160,13 +222,13 @@ def populate_material_arrays(
         if mat_eps is not None:
             # For simplicity, fill entire array with structure medium
             # A full implementation would check structure geometry bounds
-            field_state.eps_xx.fill(mat_eps)
-            field_state.eps_yy.fill(mat_eps)
-            field_state.eps_zz.fill(mat_eps)
+            _fill_array(field_state.eps_xx, mat_eps)
+            _fill_array(field_state.eps_yy, mat_eps)
+            _fill_array(field_state.eps_zz, mat_eps)
         if mat_mu is not None:
-            field_state.mu_xx.fill(mat_mu)
-            field_state.mu_yy.fill(mat_mu)
-            field_state.mu_zz.fill(mat_mu)
+            _fill_array(field_state.mu_xx, mat_mu)
+            _fill_array(field_state.mu_yy, mat_mu)
+            _fill_array(field_state.mu_zz, mat_mu)
 
 
 def allocate_field_state(
@@ -184,28 +246,51 @@ def allocate_field_state(
     FieldState
         Allocated and initialized field state.
     """
-    grid_shape = compiled.grid_shape
-    complex_policy = ComplexFieldPolicy.from_boundary_spec(
-        compiled.compiled_boundaries.boundary_spec
-    )
+    from autofdtd.kernels.backend import WARP_AVAILABLE, get_warp_device
 
-    # Allocate arrays using the kernel helper
-    arrays = allocate_maxwell_arrays(
-        grid_shape,
-        complex_policy=complex_policy,
-    )
+    grid_shape = compiled.grid_shape
+
+    # Allocate arrays on GPU when Warp is available
+    if WARP_AVAILABLE:
+        import warp as wp
+
+        dev = get_warp_device()
+        nx, ny, nz = grid_shape
+        E = wp.zeros(shape=(nx, ny, nz, 3), dtype=wp.float32, device=dev)
+        H = wp.zeros(shape=(nx, ny, nz, 3), dtype=wp.float32, device=dev)
+        eps_xx = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        eps_yy = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        eps_zz = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        mu_xx = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        mu_yy = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        mu_zz = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        electric_modes = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        magnetic_modes = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+    else:
+        import numpy as np
+
+        E = np.zeros((*grid_shape, 3), dtype=np.float64)
+        H = np.zeros((*grid_shape, 3), dtype=np.float64)
+        eps_xx = np.zeros(grid_shape, dtype=np.float64)
+        eps_yy = np.zeros(grid_shape, dtype=np.float64)
+        eps_zz = np.zeros(grid_shape, dtype=np.float64)
+        mu_xx = np.zeros(grid_shape, dtype=np.float64)
+        mu_yy = np.zeros(grid_shape, dtype=np.float64)
+        mu_zz = np.zeros(grid_shape, dtype=np.float64)
+        electric_modes = np.zeros(grid_shape, dtype=np.float64)
+        magnetic_modes = np.zeros(grid_shape, dtype=np.float64)
 
     field_state = FieldState(
-        E=arrays["E"],
-        H=arrays["H"],
-        eps_xx=arrays["eps_xx"],
-        eps_yy=arrays["eps_yy"],
-        eps_zz=arrays["eps_zz"],
-        mu_xx=arrays["mu_xx"],
-        mu_yy=arrays["mu_yy"],
-        mu_zz=arrays["mu_zz"],
-        electric_modes=np.zeros(grid_shape, dtype=np.float64),
-        magnetic_modes=np.zeros(grid_shape, dtype=np.float64),
+        E=E,
+        H=H,
+        eps_xx=eps_xx,
+        eps_yy=eps_yy,
+        eps_zz=eps_zz,
+        mu_xx=mu_xx,
+        mu_yy=mu_yy,
+        mu_zz=mu_zz,
+        electric_modes=electric_modes,
+        magnetic_modes=magnetic_modes,
     )
 
     # Populate material coefficients
@@ -336,8 +421,8 @@ def run_compiled_simulation(
         )
 
         # 3. Compute integrated electric field for convergence check
-        E_sq = np.sum(np.abs(field_state.E) ** 2)
-        integrated_electric = float(E_sq)
+        E_sq = _compute_field_magnitude_sq(field_state.E)
+        integrated_electric = E_sq
         integrated_electric_history.append(integrated_electric)
 
         # Update peak for convergence

@@ -249,14 +249,32 @@ class TestNumpyMagneticUpdate:
         )
 
         for key in self.arrays:
-            self.arrays[key].fill(0.0)
+            arr = self.arrays[key]
+            if hasattr(arr, 'fill_'):
+                arr.fill_(0.0)
+            else:
+                arr.fill(0.0)
 
-        self.arrays["eps_xx"].fill(1.0)
-        self.arrays["eps_yy"].fill(1.0)
-        self.arrays["eps_zz"].fill(1.0)
-        self.arrays["mu_xx"].fill(1.0)
-        self.arrays["mu_yy"].fill(1.0)
-        self.arrays["mu_zz"].fill(1.0)
+        eps_xx = self.arrays["eps_xx"]
+        eps_yy = self.arrays["eps_yy"]
+        eps_zz = self.arrays["eps_zz"]
+        mu_xx = self.arrays["mu_xx"]
+        mu_yy = self.arrays["mu_yy"]
+        mu_zz = self.arrays["mu_zz"]
+        if hasattr(eps_xx, 'fill_'):
+            eps_xx.fill_(1.0)
+            eps_yy.fill_(1.0)
+            eps_zz.fill_(1.0)
+            mu_xx.fill_(1.0)
+            mu_yy.fill_(1.0)
+            mu_zz.fill_(1.0)
+        else:
+            eps_xx.fill(1.0)
+            eps_yy.fill(1.0)
+            eps_zz.fill(1.0)
+            mu_xx.fill(1.0)
+            mu_yy.fill(1.0)
+            mu_zz.fill(1.0)
 
     def test_magnetic_update_preserves_zero_fields(self):
         """Zero H field remains zero after update with zero E."""
@@ -357,14 +375,32 @@ class TestVacuumMaxwellStep:
         )
 
         for key in self.arrays:
-            self.arrays[key].fill(0.0)
+            arr = self.arrays[key]
+            if hasattr(arr, 'fill_'):
+                arr.fill_(0.0)
+            else:
+                arr.fill(0.0)
 
-        self.arrays["eps_xx"].fill(1.0)
-        self.arrays["eps_yy"].fill(1.0)
-        self.arrays["eps_zz"].fill(1.0)
-        self.arrays["mu_xx"].fill(1.0)
-        self.arrays["mu_yy"].fill(1.0)
-        self.arrays["mu_zz"].fill(1.0)
+        eps_xx = self.arrays["eps_xx"]
+        eps_yy = self.arrays["eps_yy"]
+        eps_zz = self.arrays["eps_zz"]
+        mu_xx = self.arrays["mu_xx"]
+        mu_yy = self.arrays["mu_yy"]
+        mu_zz = self.arrays["mu_zz"]
+        if hasattr(eps_xx, 'fill_'):
+            eps_xx.fill_(1.0)
+            eps_yy.fill_(1.0)
+            eps_zz.fill_(1.0)
+            mu_xx.fill_(1.0)
+            mu_yy.fill_(1.0)
+            mu_zz.fill_(1.0)
+        else:
+            eps_xx.fill(1.0)
+            eps_yy.fill(1.0)
+            eps_zz.fill(1.0)
+            mu_xx.fill(1.0)
+            mu_yy.fill(1.0)
+            mu_zz.fill(1.0)
 
     def test_step_maxwell_numpy_returns_metrics(self):
         """step_maxwell returns structured metrics."""
@@ -503,14 +539,32 @@ class TestYeeLatticeStaggering:
         )
 
         for key in self.arrays:
-            self.arrays[key].fill(0.0)
+            arr = self.arrays[key]
+            if hasattr(arr, 'fill_'):
+                arr.fill_(0.0)
+            else:
+                arr.fill(0.0)
 
-        self.arrays["eps_xx"].fill(1.0)
-        self.arrays["eps_yy"].fill(1.0)
-        self.arrays["eps_zz"].fill(1.0)
-        self.arrays["mu_xx"].fill(1.0)
-        self.arrays["mu_yy"].fill(1.0)
-        self.arrays["mu_zz"].fill(1.0)
+        eps_xx = self.arrays["eps_xx"]
+        eps_yy = self.arrays["eps_yy"]
+        eps_zz = self.arrays["eps_zz"]
+        mu_xx = self.arrays["mu_xx"]
+        mu_yy = self.arrays["mu_yy"]
+        mu_zz = self.arrays["mu_zz"]
+        if hasattr(eps_xx, 'fill_'):
+            eps_xx.fill_(1.0)
+            eps_yy.fill_(1.0)
+            eps_zz.fill_(1.0)
+            mu_xx.fill_(1.0)
+            mu_yy.fill_(1.0)
+            mu_zz.fill_(1.0)
+        else:
+            eps_xx.fill(1.0)
+            eps_yy.fill(1.0)
+            eps_zz.fill(1.0)
+            mu_xx.fill(1.0)
+            mu_yy.fill(1.0)
+            mu_zz.fill(1.0)
 
     def test_ey_update_uses_hx_and_hz_neighbors(self):
         """Ey update depends on Hx (dz) and Hz (dx) neighbors."""

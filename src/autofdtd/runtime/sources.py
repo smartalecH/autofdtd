@@ -373,8 +373,8 @@ def apply_tfsf_sources(
 
 
 def apply_source_injection_stage(
-    electric_field: np.ndarray,
-    magnetic_field: np.ndarray,
+    electric_field,
+    magnetic_field,
     *,
     uniform_current_sources: tuple[CompiledUniformCurrentSource, ...] = (),
     point_dipole_sources: tuple[CompiledPointDipole, ...] = (),
@@ -388,7 +388,7 @@ def apply_source_injection_stage(
     time: float = 0.0,
     dt: float = 1.0,
     freq: float | None = None,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple:
     """Apply all compiled sources in the source_injection stage.
 
     This is the unified entry point for source injection during a Maxwell
@@ -416,98 +416,71 @@ def apply_source_injection_stage(
     of different types remain synchronized. The caller is responsible for
     passing consistent time values across the stage sequence.
 
-    Parameters
-    ----------
-    electric_field : np.ndarray
-        E field buffer with shape (nx, ny, nz, 3).
-    magnetic_field : np.ndarray
-        H field buffer with shape (nx, ny, nz, 3).
-    uniform_current_sources : tuple[CompiledUniformCurrentSource, ...]
-        Compiled uniform current sources.
-    point_dipole_sources : tuple[CompiledPointDipole, ...]
-        Compiled point dipole sources.
-    custom_current_sources : tuple[CompiledCustomCurrentSource, ...]
-        Compiled custom current sources.
-    custom_field_sources : tuple[CompiledCustomFieldSource, ...]
-        Compiled custom field sources.
-    mode_sources : tuple[CompiledModeSource, ...]
-        Compiled mode sources.
-    plane_wave_sources : tuple[CompiledPlaneWave, ...]
-        Compiled plane wave sources.
-    gaussian_beam_sources : tuple[CompiledGaussianBeam, ...]
-        Compiled Gaussian beam sources.
-    astigmatic_gaussian_beam_sources : tuple[CompiledAstigmaticGaussianBeam, ...]
-        Compiled astigmatic Gaussian beam sources.
-    tfsf_sources : tuple[CompiledTFSF, ...]
-        Compiled TFSF sources.
-    time : float
-        Current simulation time.
-    dt : float
-        Timestep size.
-    freq : float, optional
-        Frequency for frequency-dependent sources (e.g., plane waves with
-        FixedInPlaneKSpec).
+    GPU path (wp.array input): preserved and passed directly to each inject
+    function, which launches Warp kernels for in-place injection with no CPU
+    roundtrip.
 
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        Updated (electric_field, magnetic_field) buffers.
+    CPU path (ndarray input): NumPy fallback with complex128 arithmetic.
     """
-    electric = np.asarray(electric_field)
-    magnetic = np.asarray(magnetic_field)
+    # Import here to avoid circular import issues with warp detection
+    from autofdtd.kernels.sources import _is_warp_array
+
+    is_warp = _is_warp_array(electric_field)
 
     # Uniform current sources (electric/magnetic currents)
     if uniform_current_sources:
-        electric, magnetic = apply_uniform_current_sources(
-            electric, magnetic, uniform_current_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_uniform_current_sources(
+            electric_field, magnetic_field, uniform_current_sources, time=time, dt=dt
         )
 
     # Point dipole sources
     if point_dipole_sources:
-        electric, magnetic = apply_point_dipole_sources(
-            electric, magnetic, point_dipole_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_point_dipole_sources(
+            electric_field, magnetic_field, point_dipole_sources, time=time, dt=dt
         )
 
     # Custom current sources
     if custom_current_sources:
-        electric, magnetic = apply_custom_current_sources(
-            electric, magnetic, custom_current_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_custom_current_sources(
+            electric_field, magnetic_field, custom_current_sources, time=time, dt=dt
         )
 
     # Custom field sources (equivalence principle)
     if custom_field_sources:
-        electric, magnetic = apply_custom_field_source_sources(
-            electric, magnetic, custom_field_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_custom_field_source_sources(
+            electric_field, magnetic_field, custom_field_sources, time=time, dt=dt
         )
 
     # Mode sources (equivalence principle with mode profile)
     if mode_sources:
-        electric, magnetic = apply_mode_sources(
-            electric, magnetic, mode_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_mode_sources(
+            electric_field, magnetic_field, mode_sources, time=time, dt=dt
         )
 
     # Plane wave sources (equivalence principle)
     if plane_wave_sources:
-        electric, magnetic = apply_plane_wave_sources(
-            electric, magnetic, plane_wave_sources, time=time, dt=dt, freq=freq
+        electric_field, magnetic_field = apply_plane_wave_sources(
+            electric_field, magnetic_field, plane_wave_sources, time=time, dt=dt, freq=freq
         )
 
     # Gaussian beam sources (equivalence principle with Gaussian envelope)
     if gaussian_beam_sources:
-        electric, magnetic = apply_gaussian_beam_sources(
-            electric, magnetic, gaussian_beam_sources, time=time, dt=dt, freq=freq
+        electric_field, magnetic_field = apply_gaussian_beam_sources(
+            electric_field, magnetic_field, gaussian_beam_sources, time=time, dt=dt, freq=freq
         )
 
     # Astigmatic Gaussian beam sources
     if astigmatic_gaussian_beam_sources:
-        electric, magnetic = apply_astigmatic_gaussian_beam_sources(
-            electric, magnetic, astigmatic_gaussian_beam_sources, time=time, dt=dt, freq=freq
+        electric_field, magnetic_field = apply_astigmatic_gaussian_beam_sources(
+            electric_field, magnetic_field, astigmatic_gaussian_beam_sources, time=time, dt=dt, freq=freq
         )
 
     # TFSF sources (volume injection with TF/SF correction)
     if tfsf_sources:
-        electric, magnetic = apply_tfsf_sources(
-            electric, magnetic, tfsf_sources, time=time, dt=dt
+        electric_field, magnetic_field = apply_tfsf_sources(
+            electric_field, magnetic_field, tfsf_sources, time=time, dt=dt
         )
 
-    return electric, magnetic
+    # For GPU path, each inject function returns the same wp.array (modified in-place)
+    # For CPU path, each inject function returns modified numpy arrays
+    return electric_field, magnetic_field
