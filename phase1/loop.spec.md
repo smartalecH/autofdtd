@@ -475,3 +475,59 @@ Last Run: task-059-attempt-001
 Last Duration: 795.1s
 Completed At: 2026-04-07T13:23:21Z
 Notes: This task should consolidate the Phase 1 evidence base rather than inventing new architecture.
+
+## [COMPLETED] task-060 - Fix GPU array flow in source injection stage
+Success: Make apply_source_injection_stage() preserve wp.array inputs instead of converting to NumPy. Create Warp kernel versions of all inject functions.
+Attempts: 1
+Last Run: task-060-attempt-001
+Last Duration: 1785.8s
+Completed At: 2026-04-07T15:20:17Z
+Notes: 
+
+## [COMPLETED] task-061 - Wire GPU array path through timestep loop
+Success: Fix allocate_field_state() to allocate on GPU when WARP_AVAILABLE=True. Fix step_maxwell() to receive and pass wp.array objects without converting to numpy.
+Attempts: 1
+Last Run: task-061-attempt-001
+Last Duration: 1603.6s
+Completed At: 2026-04-07T15:47:01Z
+Notes: 
+
+## [COMPLETED] task-062 - Run validation examples on GPU
+Success: Run existing validation examples on GPU, verify backend=warp, and ensure Gcells/s metrics are computed.
+Attempts: 1
+Last Run: task-062-attempt-001
+Last Duration: 677.8s
+Completed At: 2026-04-07T15:58:19Z
+Notes: 
+
+## [COMPLETED] task-063 - Implement 2-GPU chunk decomposition (Meep-style)
+Success: Implement multi-chunk decomposition where chunk boundaries align with PML layers and specialty boundaries (not uniform spatial splits). Extend build_chunk_layout() to compute chunk decomposition from boundary spec (PML depth, ABC depth) and produce per-chunk interior_owned boundaries that exclude boundary layers. Map chunks to devices via device_assignment.
+Attempts: 1
+Last Run: task-063-attempt-001
+Last Duration: 2356.2s
+Completed At: 2026-04-07T16:37:35Z
+Notes: 
+
+## [COMPLETED] task-064 - Implement cross-device halo exchange
+Success: Implement cross-device halo exchange using explicit CUDA memcpy since peer access is not supported. Extend ChunkHaloExchange for cross-device faces.
+Attempts: 1
+Last Run: task-064-attempt-001
+Last Duration: 940.9s
+Completed At: 2026-04-07T16:53:16Z
+Notes: 
+
+## [COMPLETED] task-065 - GPU benchmarking — single and multi-GPU Gcells/s
+Success: Add GPU benchmark tests that report Gcells/s and compare single-GPU vs 2-GPU scaling. Verify 2 GPUs achieve ≥1.5x single-GPU for sufficient problem size.
+Attempts: 1
+Last Run: task-065-attempt-001
+Last Duration: 1119.6s
+Completed At: 2026-04-07T17:11:55Z
+Notes: 
+
+## [COMPLETED] task-066 - Document GPU testing in README
+Success: Update README with GPU test evidence, Gcells/s metrics, and multi-GPU scaling results.
+Attempts: 1
+Last Run: task-066-attempt-001
+Last Duration: 130.9s
+Completed At: 2026-04-07T17:14:06Z
+Notes:
