@@ -627,11 +627,12 @@ Attempts: 0
 ## INTEGRATION TASKS
 
 ## [QUEUED] task-250 - Full Phase 2 suite execution and report
-Success: All 18 examples run all permutations (baseline, convergence, weak-scale, multi-GPU). Clean markdown table produced: example, variant, pass/fail, error vs. ground truth, `cells/s`, multi-GPU speedup. Any failures documented with root cause.
-Blocked By: tasks 101-118
+Success: All 17 unblocked examples complete honest ground-truth comparison (FDTD vs. analytical/semi-analytical). Each example shows real error < threshold. task-117 BLOCKED by task-308. Clean markdown table: example, pass/fail, error vs. ground truth, cells/s, multi-GPU speedup.
+Blocked By: task-101-base, task-102-base, task-103-base, task-104-base, task-105-base, task-106-base, task-107-base, task-108-base, task-109-base, task-110-base, task-111-base, task-112-base, task-113-base, task-114-base, task-115-base, task-116-base, task-118-base
 Attempts: 0
+Notes: All examples must do FDTD-vs-analytical comparison, not just multi-GPU self-consistency. Bug 7 (source injection near-zero fields) is the primary blocker — see loop.prompt.md for fix approaches.
 
 ## [QUEUED] task-251 - Phase 2 README update
-Success: `phase2/README.md` documents: the 18-example suite, ground truth references, VRAM requirements, success criteria, hardware setup, how to run the suite, and the pass/fail summary table.
+Success: `phase2/README.md` accurately reflects final state: honest pass/fail from FDTD-vs-analytical ground-truth comparison, Bug 7 status, task-117 blocked by task-308, VRAM requirements, success criteria, run instructions.
 Blocked By: task-250
 Attempts: 0

@@ -58,14 +58,20 @@ def _resolve_cell_centers(
     sx, sy, sz = sim_size
 
     if normal_axis == 0:
+        # Cross-section is y-z plane at x = position
+        # Grid should be centered at sim_center[1] (y) and sim_center[2] (z)
         in_plane_axes = (1, 2)
         in_plane_sizes = (sy, sz)
-        offset = (sim_center[0], position)
+        offset = (sim_center[1], sim_center[2])
     elif normal_axis == 1:
+        # Cross-section is x-z plane at y = position
+        # Grid should be centered at sim_center[0] (x) and sim_center[2] (z)
         in_plane_axes = (0, 2)
         in_plane_sizes = (sx, sz)
-        offset = (position, sim_center[1])
+        offset = (sim_center[0], sim_center[2])
     else:  # normal_axis == 2
+        # Cross-section is x-y plane at z = position
+        # Grid should be centered at sim_center[0] (x) and sim_center[1] (y)
         in_plane_axes = (0, 1)
         in_plane_sizes = (sx, sy)
         offset = (sim_center[0], sim_center[1])

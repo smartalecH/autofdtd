@@ -27,6 +27,7 @@ from autofdtd.boundaries import (
 )
 from autofdtd.geometry import (
     ClipOperation,
+    EulerBend,
     GeometryArray,
     GeometryGroup,
     PolySlab,
@@ -327,6 +328,7 @@ def geometry_bounds(geometry: object) -> tuple[Vec3, Vec3] | None:
         "Transformed": {"geometry", "transform"},
         "ClipOperation": {"operation", "geometry_a", "geometry_b"},
         "GeometryArray": {"geometry"},
+        "EulerBend": {"radius", "angle", "width", "slab_bounds", "axis"},
     }[geometry_type]
     if not required_fields <= geometry.keys():
         return None
@@ -348,6 +350,7 @@ def geometry_contains_point(geometry: object, point: Sequence[object]) -> bool:
             Transformed,
             ClipOperation,
             GeometryArray,
+            EulerBend,
         ),
     ):
         return geometry.contains_point(normalized_point)

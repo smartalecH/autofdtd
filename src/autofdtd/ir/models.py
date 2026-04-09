@@ -36,6 +36,7 @@ from autofdtd.geometry import (
     Box,
     ClipOperation,
     Cylinder,
+    EulerBend,
     GeometryArray,
     GeometryGroup,
     GeometryTransform,
@@ -518,6 +519,23 @@ class PolySlabIR(IRModel):
     transform: GeometryTransformIR
 
 
+class EulerBendIR(IRModel):
+    """Typed execution IR for an Euler/clothoid bend geometry."""
+
+    type: Literal["EulerBendIR"] = "EulerBendIR"
+    component_type: Literal["EulerBend"] = "EulerBend"
+    radius: float
+    angle: float
+    width: float
+    slab_bounds: tuple[float, float]
+    axis: int
+    interface: str
+    center: tuple[float, float, float]
+    bounds_min: tuple[float, float, float]
+    bounds_max: tuple[float, float, float]
+    transform: GeometryTransformIR
+
+
 class GeometryGroupIR(IRModel):
     """Typed execution IR for a grouped geometry collection."""
 
@@ -556,6 +574,7 @@ GeometryIR = (
     | SphereIR
     | CylinderIR
     | PolySlabIR
+    | EulerBendIR
     | GeometryGroupIR
     | TransformedIR
     | ClipOperationIR
@@ -1882,6 +1901,7 @@ def geometry_to_ir(value: object) -> GeometryIR:
             Sphere,
             Cylinder,
             PolySlab,
+            EulerBend,
             GeometryGroup,
             Transformed,
             ClipOperation,
@@ -1897,6 +1917,7 @@ def geometry_to_ir(value: object) -> GeometryIR:
             "Sphere",
             "Cylinder",
             "PolySlab",
+            "EulerBend",
             "GeometryGroup",
             "Transformed",
             "ClipOperation",
@@ -1942,6 +1963,20 @@ def geometry_to_ir(value: object) -> GeometryIR:
             sidewall_angle=geometry.sidewall_angle,
             dilation=geometry.dilation,
             reference_plane=geometry.reference_plane,
+            bounds_min=bounds_min,
+            bounds_max=bounds_max,
+            transform=geometry_transform_to_ir(geometry.transform),
+        )
+    if isinstance(geometry, EulerBend):
+        bounds_min, bounds_max = geometry.bounds
+        return EulerBendIR(
+            radius=geometry.radius,
+            angle=geometry.angle,
+            width=geometry.width,
+            slab_bounds=geometry.slab_bounds,
+            axis=geometry.axis,
+            interface=geometry.interface,
+            center=geometry.center,
             bounds_min=bounds_min,
             bounds_max=bounds_max,
             transform=geometry_transform_to_ir(geometry.transform),

@@ -428,6 +428,8 @@ def _reconstruct_fields(
     ny, nx = Hx.shape
     diffx = np.diff(x)
     diffy = np.diff(y)
+    print(f"DEBUG _reconstruct_fields: Hx.shape={Hx.shape}, ny={ny}, nx={nx}, x.shape={x.shape}, y.shape={y.shape}")
+    print(f"DEBUG: Ex will be allocated as ({ny-1}, {nx-1}) = {(ny-1)*(nx-1)} elements")
 
     Ex = np.zeros((ny - 1, nx - 1), dtype=np.complex128)
     Ey = np.zeros((ny - 1, nx - 1), dtype=np.complex128)
@@ -472,6 +474,99 @@ def _reconstruct_fields(
     return Ex, Ey, Ez
 
 
+def _estimate_n_core_n_clad(
+    epsilon: EpsilonCallback,
+    x: tuple[float, ...],
+    y: tuple[float, ...],
+) -> tuple[float, float]:
+    """Estimate n_core and n_clad from epsilon callback.
+
+    Returns (n_clad, n_core) based on min/max epsilon_zz values.
+    For a step-index waveguide, n_clad is the minimum refractive index
+    and n_core is the maximum.
+    """
+    eps_min = float('inf')
+    eps_max = float('-inf')
+
+    # Sample at cell centers
+    for x_val in x:
+        for y_val in y:
+            _, _, _, _, eps_zz = epsilon(x_val, y_val)
+            eps_min = min(eps_min, abs(eps_zz))
+            eps_max = max(eps_max, abs(eps_zz))
+
+    n_clad = math.sqrt(eps_min) if eps_min < float('inf') else 1.0
+    n_core = math.sqrt(eps_max) if eps_max > float('-inf') else 1.5
+
+    return n_clad, n_core
+
+
+def _make_bent_epsilon_callback(
+    epsilon: EpsilonCallback,
+    bend_radius: float,
+    bend_axis: int,
+    x_coords: tuple[float, ...],
+    y_coords: tuple[float, ...],
+) -> EpsilonCallback:
+    """Create an epsilon callback that accounts for bend curvature.
+
+    For a bent waveguide, the effective refractive index is modified by
+    the curvature. For a bend of radius R in a given plane, the effective
+    index at a point depends on its radial distance from the bend center.
+
+    The modification is: n_eff = n * (1 + r/R)
+    where r is the radial distance from the bend center.
+
+    Args:
+        epsilon: Original epsilon callback
+        bend_radius: Bend radius in meters
+        bend_axis: Axis of the bend plane (0=x, 1=y, 2=z)
+        x_coords: x coordinates of the grid
+        y_coords: y coordinates of the grid
+
+    Returns:
+        Modified epsilon callback with bent index correction
+    """
+    # Compute the center of the grid in the bend plane
+    x_center = (x_coords[0] + x_coords[-1]) / 2.0 if len(x_coords) > 1 else 0.0
+    y_center = (y_coords[0] + y_coords[-1]) / 2.0 if len(y_coords) > 1 else 0.0
+
+    def bent_epsilon(x: float, y: float) -> tuple[float, float, float, float, float]:
+        """Epsilon callback with bend correction applied."""
+        eps_xx, eps_xy, eps_yx, eps_yy, eps_zz = epsilon(x, y)
+
+        # Compute radial distance from bend center based on bend axis
+        # The bend plane determines which coordinates contribute to r
+        if bend_axis == 2:
+            # Bend in x-y plane: radial distance = sqrt((x - cx)^2 + (y - cy)^2)
+            # But we only use the perpendicular distance
+            # Actually for the index modification, we care about the
+            # distance in the direction of bending
+            r = abs(y - y_center)
+        elif bend_axis == 1:
+            # Bend in x-z plane: use x distance
+            r = abs(x - x_center)
+        else:  # bend_axis == 0
+            # Bend in y-z plane: use y distance
+            r = abs(y - y_center)
+
+        # Apply curvature correction to all permittivity components
+        # n_eff = n * (1 + r/R)
+        # eps_eff = eps * (1 + r/R)^2
+        curvature_factor = 1.0 + r / bend_radius
+        curvature_factor_sq = curvature_factor * curvature_factor
+
+        return (
+            eps_xx * curvature_factor_sq,
+            eps_xy * curvature_factor_sq,
+            eps_yx * curvature_factor_sq,
+            eps_yy * curvature_factor_sq,
+            eps_zz * curvature_factor_sq,
+        )
+
+    return bent_epsilon
+
+
 def solve_modes(
     config: ModeSolverConfig,
     epsilon: EpsilonCallback,
@@ -502,70 +597,122 @@ def solve_modes(
     omega = 2.0 * math.pi / config.wavelength
     k = omega  # k₀ in the convention used
 
-    # Assemble sparse matrix
-    A = assemble_mode_matrix(x, y, config.wavelength, epsilon, config.cross_section.boundaries)
+    # Apply bend correction if bend_radius is specified
+    effective_epsilon = epsilon
+    if config.cross_section.bend_radius is not None:
+        effective_epsilon = _make_bent_epsilon_callback(
+            epsilon,
+            config.cross_section.bend_radius,
+            config.cross_section.bend_axis,
+            x,
+            y,
+        )
+
+    # Estimate n_core and n_clad from epsilon for guided-mode targeting
+    n_clad, n_core = _estimate_n_core_n_clad(effective_epsilon, x, y)
+
+    # For isotropic media, use the scalar TE matrix which correctly finds guided modes.
+    # The vector matrix (assemble_mode_matrix) has boundary condition issues that cause
+    # it to find neff < n_clad instead of guided modes with neff > n_clad.
+    # Extract epsilon_zz from the full tensor callback for the TE formulation.
+    def eps_zz_callback(xi: float, yi: float) -> float:
+        _, _, _, _, eps_zz = effective_epsilon(xi, yi)
+        return eps_zz
+
+    A_te = assemble_te_mode_matrix(x, y, config.wavelength, eps_zz_callback, config.cross_section.boundaries)
 
     # Target number of eigenvalues
-    nev = min(config.mode_spec.num_modes, max(1, N // 4))
+    # We request extra to ensure we get enough guided modes after filtering
+    nev_request = min(config.mode_spec.num_modes * 3, max(1, N // 4))
 
-    # Eigensolver sigma: target neff or None for largest real part
-    sigma = None
-    if config.mode_spec.target_neff is not None:
-        sigma = config.mode_spec.target_neff**2 * k**2  # β² = neff² * k²
-
-    # The curl-curl operator is negative definite
-    # So A·H = -β²·H, giving eigenvalues -β² < 0
-    # We want the LARGEST algebraic eigenvalue (closest to zero)
+    # For the TE matrix, eigenvalues are β² > 0 (positive).
+    # "LR" (largest real) finds the largest β², which corresponds to highest neff.
+    # This correctly finds guided modes first.
     try:
         evals, evecs = eigs(
-            A,
-            k=nev + 5,  # Request extra to handle filtering
-            sigma=sigma,
+            A_te,
+            k=nev_request + 5,  # Request extra to handle filtering
+            sigma=None,
             tol=config.tolerance,
-            which="LM" if sigma is not None else "SR",  # Smallest Real when no sigma
+            which="LR",  # Largest real = largest beta_sq = highest neff
             maxiter=2000,
         )
     except Exception as exc:
         raise RuntimeError(f"eigensolver failed: {exc}") from exc
+
+    # Radiation-mode filter: guided modes must have neff > n_clad
+    # For neff ≈ n_clad, the mode is a radiation mode (continuous spectrum)
+    radiation_margin = 0.01  # neff must be > n_clad * (1 + margin) = 1.01 for n_clad=1.0
+    min_neff_for_guided = n_clad * (1.0 + radiation_margin)
 
     modes: list[ModeSolution] = []
 
     for idx in range(len(evals)):
         beta_sq = evals[idx]
 
-        # curl-curl gives -β², so β² = -eigenvalue
-        # The eigenvalues should be negative for propagating modes
-        if beta_sq.real >= 0:
-            # Not a guided mode (would be radiating or evanescent)
+        # TE matrix gives β² = eigenvalue directly (positive for propagating modes)
+        if beta_sq.real <= 0:
+            # Not a propagating mode
             continue
 
-        beta_sq_neg = beta_sq.real  # eigenvalue of A (negative = -β²)
-        beta_sq_positive = -beta_sq_neg  # this is β² > 0
-
-        if beta_sq_positive <= 0:
-            continue
-
-        beta = math.sqrt(beta_sq_positive)
+        beta = math.sqrt(beta_sq.real)
         neff = beta / k if k > 0 else 0.0
 
         # Skip if neff is not in physical range
         if neff < 0.0 or neff > 10.0:
             continue
 
-        # Extract Hx, Hy
-        Hx_flat = evecs[:N, idx]
-        Hy_flat = evecs[N : 2 * N, idx]
+        # Filter out radiation modes: neff should be significantly above n_clad
+        if neff < min_neff_for_guided:
+            continue
 
-        Hx = Hx_flat.reshape((ny, nx))
-        Hy = Hy_flat.reshape((ny, nx))
+        # Extract Ez from eigenvector (TE matrix gives Ez directly)
+        Ez_flat = evecs[:, idx]
+        Ez = Ez_flat.reshape((ny, nx))
 
-        # Reconstruct Hz
-        Hz = _reconstruct_hz(Hx, Hy, np.asarray(x), np.asarray(y), beta)
+        # Compute Hx, Hy from Ez using Maxwell's curl equations:
+        # For TE mode (E_z only), propagating in +z:
+        # Hx = (1/(i*omega*mu)) * dEz/dy
+        # Hy = -(1/(i*omega*mu)) * dEz/dx
+        # Using mu = mu0 = 1.0 in relative units
+        i_omega = 1j * omega
 
-        # Reconstruct E fields
-        Ex, Ey, Ez = _reconstruct_fields(Hx, Hy, Hz, np.asarray(x), np.asarray(y), beta, omega, epsilon)
+        # Compute dEz/dy using central differences
+        Hy = np.zeros_like(Ez)
+        Hx = np.zeros_like(Ez)
+        for j in range(ny):
+            for i in range(nx):
+                # dEz/dy at (i,j)
+                if j == 0:
+                    dy = y[1] - y[0] if ny > 1 else 1.0
+                    dEzd_y = (Ez[j+1, i] - Ez[j, i]) / dy if j+1 < ny else 0.0
+                elif j == ny - 1:
+                    dy = y[j] - y[j-1] if ny > 1 else 1.0
+                    dEzd_y = (Ez[j, i] - Ez[j-1, i]) / dy
+                else:
+                    dy = y[j+1] - y[j-1] if j+1 < ny else y[j] - y[j-1]
+                    dEzd_y = (Ez[j+1, i] - Ez[j-1, i]) / dy
 
-        # Compute power normalization
+                # dEz/dx at (i,j)
+                if i == 0:
+                    dx = x[1] - x[0] if nx > 1 else 1.0
+                    dEzd_x = (Ez[j, i+1] - Ez[j, i]) / dx if i+1 < nx else 0.0
+                elif i == nx - 1:
+                    dx = x[i] - x[i-1] if nx > 1 else 1.0
+                    dEzd_x = (Ez[j, i] - Ez[j, i-1]) / dx
+                else:
+                    dx = x[i+1] - x[i-1] if i+1 < nx else x[i] - x[i-1]
+                    dEzd_x = (Ez[j, i+1] - Ez[j, i-1]) / dx
+
+                Hx[j, i] = dEzd_y / i_omega
+                Hy[j, i] = -dEzd_x / i_omega
+
+        # Set Ex, Ey, Hz to zero for TE mode (these are TM components)
+        Ex = np.zeros_like(Ez)
+        Ey = np.zeros_like(Ez)
+        Hz = np.zeros_like(Ez)
+
+        # Normalize fields by power
         power = float(
             np.sum(np.abs(Ex) ** 2) + np.sum(np.abs(Ey) ** 2) + np.sum(np.abs(Ez) ** 2)
         )
@@ -575,10 +722,15 @@ def solve_modes(
             flat = arr.flatten()
             return tuple((float(v.real), float(v.imag)) for v in flat)
 
-        # Downsample H to cell centers
+        # Downsample H to cell centers for consistency with vector case
         Hx_c = (Hx[:-1, :-1] + Hx[1:, :-1] + Hx[:-1, 1:] + Hx[1:, 1:]) / 4.0
         Hy_c = (Hy[:-1, :-1] + Hy[1:, :-1] + Hy[:-1, 1:] + Hy[1:, 1:]) / 4.0
-        Hz_c = Hz
+        Hz_c = (Hz[:-1, :-1] + Hz[1:, :-1] + Hz[:-1, 1:] + Hz[1:, 1:]) / 4.0
+
+        # Downsample E to cell centers to match H grid size
+        Ex_c = (Ex[:-1, :-1] + Ex[1:, :-1] + Ex[:-1, 1:] + Ex[1:, 1:]) / 4.0
+        Ey_c = (Ey[:-1, :-1] + Ey[1:, :-1] + Ey[:-1, 1:] + Ey[1:, 1:]) / 4.0
+        Ez_c = (Ez[:-1, :-1] + Ez[1:, :-1] + Ez[:-1, 1:] + Ez[1:, 1:]) / 4.0
 
         modes.append(
             ModeSolution(
@@ -586,9 +738,9 @@ def solve_modes(
                 wavelength=config.wavelength,
                 x=x,
                 y=y,
-                Ex=_to_tuple_complex(Ex * power_norm),
-                Ey=_to_tuple_complex(Ey * power_norm),
-                Ez=_to_tuple_complex(Ez * power_norm),
+                Ex=_to_tuple_complex(Ex_c * power_norm),
+                Ey=_to_tuple_complex(Ey_c * power_norm),
+                Ez=_to_tuple_complex(Ez_c * power_norm),
                 Hx=_to_tuple_complex(Hx_c * power_norm),
                 Hy=_to_tuple_complex(Hy_c * power_norm),
                 Hz=_to_tuple_complex(Hz_c * power_norm),

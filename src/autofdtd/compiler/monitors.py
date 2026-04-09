@@ -540,7 +540,11 @@ class FluxMonitorState:
     dft_count: int = 0
 
     def __post_init__(self):
-        if self.compiled.is_time_domain:
+        # For FluxMonitor without explicit freqs, record time-domain by default
+        if self.compiled.is_time_domain or (
+            self.compiled.monitor_type == "FluxMonitor"
+            and len(self.compiled.freqs) == 0
+        ):
             object.__setattr__(self, "flux_series", [])
             object.__setattr__(self, "time_stamps", [])
         else:
@@ -569,7 +573,11 @@ class FluxMonitorState:
         time: float,
     ) -> None:
         """Record flux value at the current timestep for time-domain monitor."""
-        if not self.compiled.is_time_domain:
+        # Allow for FluxMonitor without explicit freqs
+        if not self.compiled.is_time_domain and not (
+            self.compiled.monitor_type == "FluxMonitor"
+            and len(self.compiled.freqs) == 0
+        ):
             return
 
         from autofdtd.kernels.monitors import accumulate_flux
@@ -615,7 +623,11 @@ class FluxMonitorState:
 
     def to_flux_data(self) -> dict[str, Any]:
         """Convert recorded data to FluxData format."""
-        if self.compiled.is_time_domain:
+        is_time_like = self.compiled.is_time_domain or (
+            self.compiled.monitor_type == "FluxMonitor"
+            and len(self.compiled.freqs) == 0
+        )
+        if is_time_like:
             return {
                 "flux": tuple(self.flux_series) if self.flux_series else (),
                 "t": tuple(self.time_stamps) if self.time_stamps else (),

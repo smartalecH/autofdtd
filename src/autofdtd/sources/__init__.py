@@ -48,6 +48,7 @@ __all__ = [
     "FixedInPlaneKSpec",
     "GaussianBeam",
     "GaussianPulse",
+    "ModeSource",
     "PlaneWave",
     "PointDipole",
     "Pulse",

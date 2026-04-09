@@ -325,6 +325,9 @@ def record_monitor_flux(
             state.record_flux_time_domain(electric_field, magnetic_field, time)
         elif compiled.is_frequency_domain:
             state.accumulate_flux_dft(electric_field, magnetic_field, time)
+        else:
+            # No explicit freqs: record time-domain data as default behavior
+            state.record_flux_time_domain(electric_field, magnetic_field, time)
 
 
 def extract_flux_monitor_data(

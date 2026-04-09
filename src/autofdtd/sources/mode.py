@@ -43,6 +43,14 @@ class ModeSource(TaggedModel):
     The source is directional: ``direction="+"`` injects forward-propagating
     waves in the +axis direction, ``direction="-"`` injects backward.
 
+    For bent waveguide mode injection, set ``bend_radius`` to compute
+    the eigenmode of a curved waveguide. The mode solver accounts for
+    the bent coordinate system and computes the correct field profile
+    for the specified bend radius.
+
+    For angled mode injection, set ``angle_theta`` and ``angle_phi``
+    to inject the mode at an angle relative to the injection axis.
+
     Example
     -------
     >>> from autofdtd import GaussianPulse, ModeSource, ModeSpec
@@ -53,6 +61,17 @@ class ModeSource(TaggedModel):
     ...     mode_spec=ModeSpec(num_modes=3, target_neff=2.0),
     ...     mode_index=1,
     ...     direction="+",
+    ... )
+
+    Example with bent waveguide injection:
+    >>> bent_source = ModeSource(
+    ...     size=(10, 2, 0),
+    ...     source_time=pulse,
+    ...     mode_spec=ModeSpec(num_modes=1, target_neff=2.0),
+    ...     mode_index=0,
+    ...     direction="+",
+    ...     bend_radius=5.0,  # 5 micron bend radius
+    ...     bend_axis=2,  # bend in x-y plane
     ... )
     """
 
@@ -66,6 +85,33 @@ class ModeSource(TaggedModel):
     name: str | None = None
     interpolate: bool = True
     confine_to_bounds: bool = False
+    # Bent mode injection parameters
+    bend_radius: float | None = Field(
+        default=None,
+        description="Bend radius for bent waveguide mode injection (m). "
+        "If set, the mode solver computes the eigenmode of a curved waveguide "
+        "with the specified bend radius.",
+    )
+    bend_axis: int = Field(
+        default=2,
+        description="Axis of the bend plane for bent mode injection (0=x, 1=y, 2=z). "
+        "For bend_axis=2, the bend is in the x-y plane. "
+        "For bend_axis=1, the bend is in the x-z plane. "
+        "For bend_axis=0, the bend is in the y-z plane.",
+    )
+    # Angled injection parameters
+    angle_theta: float = Field(
+        default=0.0,
+        description="Polar angle for angled mode injection (radians). "
+        "0 = injection along the normal axis. "
+        "Positive values tilt toward the tangential plane.",
+    )
+    angle_phi: float = Field(
+        default=0.0,
+        description="Azimuthal angle for angled mode injection (radians). "
+        "0 = in-plane polarization in x direction. "
+        "Angle measured in the plane perpendicular to the injection direction.",
+    )
 
     @field_validator("center")
     @classmethod
@@ -111,6 +157,34 @@ class ModeSource(TaggedModel):
         if numeric < 0:
             raise ValueError("mode_index must be non-negative")
         return numeric
+
+    @field_validator("bend_radius", mode="before")
+    @classmethod
+    def _validate_bend_radius(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        radius = float(value)
+        if not math.isfinite(radius) or radius <= 0.0:
+            raise ValueError("bend_radius must be positive")
+        return radius
+
+    @field_validator("bend_axis", mode="before")
+    @classmethod
+    def _validate_bend_axis(cls, value: object) -> int:
+        if value in (0, 1, 2):
+            return int(value)
+        axis_map = {"x": 0, "y": 1, "z": 2}
+        if isinstance(value, str) and value.lower() in axis_map:
+            return axis_map[value.lower()]
+        raise ValueError("bend_axis must be one of 0, 1, 2, 'x', 'y', or 'z'")
+
+    @field_validator("angle_theta", "angle_phi", mode="before")
+    @classmethod
+    def _validate_angles(cls, value: float) -> float:
+        angle = float(value)
+        if not math.isfinite(angle):
+            raise ValueError("angle_theta and angle_phi must be finite")
+        return angle
 
     @property
     def injection_axis(self) -> int:

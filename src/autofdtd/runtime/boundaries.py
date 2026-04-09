@@ -362,9 +362,19 @@ def unpack_halo(
     for _ in range(field.ndim - len(dest_slice)):
         full_dest.append(slice(None))
 
-    result = field.copy()
-    result[tuple(full_dest)] = packed
-    return result
+    # Handle both numpy and Warp arrays
+    is_warp = hasattr(field, 'numpy')
+    if is_warp:
+        # For Warp arrays: copy to numpy, modify in-place, return numpy
+        # Note: caller must copy result back to Warp array
+        field_np = field.numpy().copy()
+        field_np[tuple(full_dest)] = packed
+        return field_np
+    else:
+        # For numpy arrays: copy and modify
+        result = field.copy()
+        result[tuple(full_dest)] = packed
+        return result
 
 
 def apply_signs_to_halo(
@@ -977,10 +987,41 @@ class ChunkHaloExchange:
         # For cross-device with numpy arrays (no GPU), just do a direct transfer
         # through host staging
         # D2H is implicit when we work with numpy arrays from GPU
-        host_data = np.array(packed)
+        # Use .numpy() method for Warp arrays, np.array() for numpy arrays
+        if hasattr(packed, 'numpy'):
+            host_data = packed.numpy()
+        else:
+            host_data = np.array(packed)
 
         # Unpack into destination
-        dst_field[:] = unpack_halo(host_data, dst_field, axis, dst_side, halo.depth, axis_size)
+        unpacked = unpack_halo(host_data, dst_field, axis, dst_side, halo.depth, axis_size)
+        # unpack_halo returns a numpy array; copy back to dst_field
+        if hasattr(dst_field, 'numpy'):
+            # Warp array: copy through numpy view + slice assignment
+            # Construct destination slice from axis, dst_side, depth, axis_size
+            if dst_side == "minus":
+                dest_slice = (slice(0, halo.depth),)
+            else:
+                dest_slice = (slice(axis_size - halo.depth, axis_size),)
+
+            # Build full slice for all dimensions
+            full_dest = list(dest_slice)
+            for _ in range(dst_field.ndim - len(dest_slice)):
+                full_dest.append(slice(None))
+
+            dst_view = dst_field.numpy()
+            dst_view[tuple(full_dest)] = unpacked
+            dst_field.assign(dst_view)
+        else:
+            # Numpy array: direct slice assignment
+            if dst_side == "minus":
+                dest_slice = (slice(0, halo.depth),)
+            else:
+                dest_slice = (slice(axis_size - halo.depth, axis_size),)
+            full_dest = list(dest_slice)
+            for _ in range(dst_field.ndim - len(dest_slice)):
+                full_dest.append(slice(None))
+            dst_field[tuple(full_dest)] = unpacked
 
         return host_data
 

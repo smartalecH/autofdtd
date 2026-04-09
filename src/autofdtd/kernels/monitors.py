@@ -105,6 +105,17 @@ def record_field_frequency_domain(
     monitor_state._set_dft_count(monitor_state.dft_count_value + 1)
 
 
+def _field_to_numpy(field: np.ndarray) -> np.ndarray:
+    """Convert Warp array to numpy array for indexing.
+
+    Warp arrays do not support item assignment or numpy-style multi-dimensional
+    indexing. This helper converts them to numpy views first.
+    """
+    if hasattr(field, "numpy"):
+        return field.numpy()
+    return field
+
+
 def _extract_field_at_monitor(
     electric_field: np.ndarray,
     magnetic_field: np.ndarray,
@@ -131,11 +142,13 @@ def _extract_field_at_monitor(
     is_electric = field[0] == "E"
     component_axis = {"x": 0, "y": 1, "z": 2}[field[1]]
 
+    # Convert Warp arrays to numpy for indexing
+    E = _field_to_numpy(electric_field)
+    H = _field_to_numpy(magnetic_field)
+    source = E if is_electric else H
+
     for i, idx in enumerate(placements):
-        if is_electric:
-            values[i] = electric_field[idx][component_axis]
-        else:
-            values[i] = magnetic_field[idx][component_axis]
+        values[i] = source[idx[0], idx[1], idx[2], component_axis]
 
     return values
 
@@ -199,13 +212,17 @@ def accumulate_flux(
     tang_axes = tuple(a for a in range(3) if a != axis)
 
     flux = 0.0
+    # Convert Warp arrays to numpy for indexing
+    E = _field_to_numpy(electric_field)
+    H = _field_to_numpy(magnetic_field)
+
     for idx in placements:
-        ex = electric_field[idx][0]
-        ey = electric_field[idx][1]
-        ez = electric_field[idx][2]
-        hx = magnetic_field[idx][0]
-        hy = magnetic_field[idx][1]
-        hz = magnetic_field[idx][2]
+        ex = E[idx[0], idx[1], idx[2], 0]
+        ey = E[idx[0], idx[1], idx[2], 1]
+        ez = E[idx[0], idx[1], idx[2], 2]
+        hx = H[idx[0], idx[1], idx[2], 0]
+        hy = H[idx[0], idx[1], idx[2], 1]
+        hz = H[idx[0], idx[1], idx[2], 2]
 
         if axis == 0:
             s_normal = ey * hz - ez * hy

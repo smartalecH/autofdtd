@@ -89,11 +89,34 @@ class ModeSolverCrossSection(TaggedModel):
         BoundaryCondition(condition="dirichlet"),
         BoundaryCondition(condition="dirichlet"),
     )
+    # Bend parameters for bent waveguide mode solving
+    bend_radius: float | None = Field(
+        default=None,
+        description="Bend radius for bent waveguide mode solving (m). "
+        "If set, the mode solver accounts for curvature in the eigenvalue problem.",
+    )
+    bend_axis: Literal[0, 1, 2] = Field(
+        default=2,
+        description="Axis of the bend plane for bent mode solving (0=x, 1=y, 2=z). "
+        "For bend_axis=2, the bend is in the x-y plane (curving around z). "
+        "For bend_axis=1, the bend is in the x-z plane (curving around y). "
+        "For bend_axis=0, the bend is in the y-z plane (curving around x).",
+    )
 
     @field_validator("position")
     @classmethod
     def _validate_position(cls, value: float) -> float:
         return float(value)
+
+    @field_validator("bend_radius", mode="before")
+    @classmethod
+    def _validate_bend_radius(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        radius = float(value)
+        if not math.isfinite(radius) or radius <= 0.0:
+            raise ValueError("bend_radius must be positive")
+        return radius
 
 
 class ModeSolverConfig(TaggedModel):

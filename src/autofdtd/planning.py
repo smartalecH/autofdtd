@@ -88,6 +88,12 @@ _FEATURE_MATRIX: Final[tuple[FeatureEntry, ...]] = (
         "Repeated placement semantics.",
     ),
     FeatureEntry("geometry", "TriangleMesh", FeatureStatus.DEFER, "Advanced geometry bucket."),
+    FeatureEntry(
+        "geometry",
+        "EulerBend",
+        FeatureStatus.IMPLEMENT,
+        "Euler/clothoid bend for smoothly-curved waveguide integration.",
+    ),
     # Grid and subpixel
     FeatureEntry("grid", "UniformGrid", FeatureStatus.IMPLEMENT, "Core grid path."),
     FeatureEntry("grid", "CustomGrid", FeatureStatus.IMPLEMENT, "Explicit grid control."),

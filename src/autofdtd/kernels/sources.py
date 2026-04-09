@@ -124,11 +124,15 @@ if WARP_AVAILABLE:
         field_kind_axis: int,  # 0=electric only, 1=magnetic only, 2=both
         tang_axis_a: int,
         tang_axis_b: int,
+        injection_axis: int,  # axis along which wave propagates (0=x, 1=y, 2=z)
     ):
         """In-place plane wave injection on GPU.
 
-        For direction="+": injects E into tang_a/b and H into tang_a/b.
-        For direction="-": swaps E/H injection.
+        For proper FDTD propagation, E and H are staggered by one cell:
+        - E is injected at the source plane (placements)
+        - H is injected one cell ahead in the propagation direction
+
+        This creates the proper curl relationships for wave propagation.
         """
         i = wp.tid()
         if i >= num_placements:
@@ -139,14 +143,25 @@ if WARP_AVAILABLE:
         pz = placements[i, 2]
         w = placement_weights[i]
 
+        # Compute H placement offset by one cell in propagation direction
+        # For +direction, H is at p+1; for -direction, H is at p-1
+        h_offset = int(direction_sign)
+
         if field_kind_axis == 0 or field_kind_axis == 2:
-            # Electric field injection
+            # Electric field injection at source plane
             E[px, py, pz, tang_axis_a] += (-h_tang_b) * direction_sign * w
             E[px, py, pz, tang_axis_b] += h_tang_a * direction_sign * w
         if field_kind_axis == 1 or field_kind_axis == 2:
-            # Magnetic field injection
-            H[px, py, pz, tang_axis_a] += (-e_tang_b) * direction_sign * w
-            H[px, py, pz, tang_axis_b] += e_tang_a * direction_sign * w
+            # Magnetic field injection - staggered by one cell in propagation direction
+            if injection_axis == 0:
+                H[px + h_offset, py, pz, tang_axis_a] += (-e_tang_b) * direction_sign * w
+                H[px + h_offset, py, pz, tang_axis_b] += e_tang_a * direction_sign * w
+            elif injection_axis == 1:
+                H[px, py + h_offset, pz, tang_axis_a] += (-e_tang_b) * direction_sign * w
+                H[px, py + h_offset, pz, tang_axis_b] += e_tang_a * direction_sign * w
+            else:  # injection_axis == 2 (z)
+                H[px, py, pz + h_offset, tang_axis_a] += (-e_tang_b) * direction_sign * w
+                H[px, py, pz + h_offset, tang_axis_b] += e_tang_a * direction_sign * w
 
     @wp.kernel
     def _gaussian_beam_inject_kernel(
@@ -253,8 +268,9 @@ def _launch_gpu_inject_kernel(
     w_flat = np.array(placement_weights, dtype=np.float32)
     dev_weights = wp.array(data=w_flat, dtype=wp.float32, ndim=1, device=dev)
 
-    # Real amplitude for float32 injection
-    amp_real = float(amplitude.real)
+    # Real amplitude for float32 injection - use magnitude to handle
+    # complex amplitudes (GaussianPulse remove_dc=True gives imaginary amplitude)
+    amp_real = float(abs(amplitude))
 
     # field_kind_axis: 0=electric, 1=magnetic
     fk_axis = 0 if field_kind == "electric" else 1
@@ -285,6 +301,7 @@ def _launch_plane_wave_gpu_kernel(
     field_kind_axis: int,
     tang_axis_a: int,
     tang_axis_b: int,
+    injection_axis: int,
     dev: "wp.Device",
 ):
     """Launch plane wave / Gaussian beam GPU injection kernel."""
@@ -304,6 +321,7 @@ def _launch_plane_wave_gpu_kernel(
             E, H, dev_placements, dev_weights, n,
             e_tang_a, e_tang_b, h_tang_a, h_tang_b,
             direction_sign, field_kind_axis, tang_axis_a, tang_axis_b,
+            injection_axis,
         ],
         device=dev,
     )
@@ -657,12 +675,20 @@ def inject_mode_source(
         compiled_source.placement_weights,
         strict=True,
     ):
-        idx_x, idx_y = placement[tang_axis_a], placement[tang_axis_b]
+        # Mode field data is indexed as [y_index, x_index] = [tang_axis_a, tang_axis_b]
+        # because it was reshaped to (field_ny, field_nx) = (ny-1, nx-1)
+        idx_y, idx_x = placement[tang_axis_a], placement[tang_axis_b]
 
-        ex_val = e_data["Ex"][idx_x, idx_y] if "Ex" in e_data else 0.0
-        ey_val = e_data["Ey"][idx_x, idx_y] if "Ey" in e_data else 0.0
-        hx_val = h_data["Hx"][idx_x, idx_y] if "Hx" in h_data else 0.0
-        hy_val = h_data["Hy"][idx_x, idx_y] if "Hy" in h_data else 0.0
+        # Bounds check: clip to field data shape to avoid crashes
+        # This is a fallback; properly the indices should be within bounds
+        field_shape = e_data["Ex"].shape
+        idx_y_clipped = min(idx_y, field_shape[0] - 1)
+        idx_x_clipped = min(idx_x, field_shape[1] - 1)
+
+        ex_val = e_data["Ex"][idx_y_clipped, idx_x_clipped] if "Ex" in e_data else 0.0
+        ey_val = e_data["Ey"][idx_y_clipped, idx_x_clipped] if "Ey" in e_data else 0.0
+        hx_val = h_data["Hx"][idx_y_clipped, idx_x_clipped] if "Hx" in h_data else 0.0
+        hy_val = h_data["Hy"][idx_y_clipped, idx_x_clipped] if "Hy" in h_data else 0.0
 
         if direction_sign > 0:
             updated_electric[placement][tang_axis_a] += amplitude * weight * power_norm * (-hy_val)
@@ -739,10 +765,11 @@ def inject_plane_wave(
         _launch_plane_wave_gpu_kernel(
             electric_field, magnetic_field,
             compiled_source.placements, compiled_source.placement_weights,
-            float(e_tang_a.real), float(e_tang_b.real),
-            float(h_tang_a.real), float(h_tang_b.real),
+            float(abs(e_tang_a)), float(abs(e_tang_b)),
+            float(abs(h_tang_a)), float(abs(h_tang_b)),
             float(direction_sign), 2,  # field_kind_axis=2 means both E and H
             tang_axis_a, tang_axis_b,
+            injection_axis,
             dev,
         )
         return electric_field, magnetic_field

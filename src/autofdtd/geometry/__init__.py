@@ -9,6 +9,7 @@ from autofdtd.geometry.composite import (
     Transformed,
     composite_geometry_model_from_value,
 )
+from autofdtd.geometry.euler_bend import EulerBend, euler_bend_from_value
 from autofdtd.geometry.polyslab import PolySlab, polyslab_model_from_value
 from autofdtd.geometry.primitives import (
     Box,
@@ -22,7 +23,7 @@ from autofdtd.geometry.primitives import (
 )
 
 GeometryModel = (
-    Box | Sphere | Cylinder | PolySlab | GeometryGroup | Transformed | ClipOperation | GeometryArray
+    Box | Sphere | Cylinder | PolySlab | EulerBend | GeometryGroup | Transformed | ClipOperation | GeometryArray
 )
 
 
@@ -32,6 +33,10 @@ def geometry_model_from_value(value: object) -> GeometryModel:
         isinstance(value, Mapping) and str(value.get("type")) == "PolySlab"
     ):
         return polyslab_model_from_value(value)
+    if isinstance(value, EulerBend) or (
+        isinstance(value, Mapping) and str(value.get("type")) == "EulerBend"
+    ):
+        return euler_bend_from_value(value)
     if isinstance(value, (GeometryGroup, Transformed, ClipOperation, GeometryArray)) or (
         isinstance(value, Mapping)
         and str(value.get("type"))
@@ -44,6 +49,7 @@ __all__ = [
     "Box",
     "ClipOperation",
     "Cylinder",
+    "EulerBend",
     "GeometryArray",
     "GeometryGroup",
     "GeometryModel",
@@ -53,6 +59,7 @@ __all__ = [
     "Sphere",
     "Transformed",
     "composite_geometry_model_from_value",
+    "euler_bend_from_value",
     "geometry_model_from_value",
     "polyslab_model_from_value",
 ]

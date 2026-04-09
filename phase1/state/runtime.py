@@ -392,6 +392,7 @@ def run_claude(
     prompt_text: str,
     run_dir: Path,
     console_path: Path,
+    task_id: str = "",
 ) -> int:
     """Run Claude Code in headless (-p) mode using stream-json for reliable I/O."""
     env = os.environ.copy()
@@ -494,8 +495,20 @@ def run_claude(
 
     exit_code = process.wait()
 
-    # Build result.json in the expected schema format
+    # Prefer the agent's actual result from phase1/results/ if it exists
     result_path = run_dir / "result.json"
+    agent_result_path = bundle_dir / "results" / f"task-{task_id}-result.json"
+    if agent_result_path.exists():
+        try:
+            agent_result = json.loads(agent_result_path.read_text())
+            if isinstance(agent_result, dict) and "status" in agent_result:
+                append_console(console_path, f"  → Using agent result from {agent_result_path}")
+                result_path.write_text(json.dumps(agent_result, indent=2))
+                return exit_code
+        except (json.JSONDecodeError, OSError):
+            pass  # Fall through to fabricated result
+
+    # Build result.json in the expected schema format (fallback)
     if result_data:
         is_error = result_data.get("is_error", False)
         stop_reason = result_data.get("stop_reason", "")
@@ -765,6 +778,7 @@ def main() -> int:
                 prompt_text,
                 run_dir,
                 console_path,
+                task_id=task.task_id,
             )
         else:
             exit_code = run_codex(

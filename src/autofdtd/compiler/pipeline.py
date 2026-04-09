@@ -445,7 +445,7 @@ def _compile_monitors_for_simulation(
                 size=monitor.size,
                 interval=monitor.interval,
                 start=monitor.start,
-                mode_index=getattr(monitor, "mode_index", 0),
+                mode_spec={"mode_index": getattr(monitor, "mode_index", 0)},
                 num_freqs=getattr(monitor, "num_freqs", 1),
                 freqs=getattr(monitor, "freqs", ()),
                 direction=getattr(monitor, "direction", "+"),
@@ -467,7 +467,26 @@ def _compile_monitors_for_simulation(
             # projection monitor compiler
             from autofdtd.compiler.monitors import compile_projection_monitor
 
-            compiled = compile_projection_monitor(monitor, grid=grid)
+            compiled = compile_projection_monitor(
+                name=monitor.name,
+                monitor_type=monitor.type,
+                center=monitor.center,
+                size=monitor.size,
+                normal_vector=getattr(monitor, 'normal_vector', (0.0, 0.0, 1.0)),
+                projection_distance=getattr(monitor, 'projection_distance', 1e5),
+                interval=monitor.interval,
+                start=monitor.start,
+                num_freqs=getattr(monitor, 'num_freqs', 1),
+                freqs=getattr(monitor, 'freqs', ()),
+                phi=getattr(monitor, 'phi', (-90.0, 90.0, 181)),
+                theta=getattr(monitor, 'theta', (0.0, 180.0, 181)),
+                x=getattr(monitor, 'x', (-50.0, 50.0, 201)),
+                y=getattr(monitor, 'y', (-50.0, 50.0, 201)),
+                num_k=getattr(monitor, 'num_k', 1),
+                kx=getattr(monitor, 'kx', (-10.0, 10.0, 21)),
+                ky=getattr(monitor, 'ky', (-10.0, 10.0, 21)),
+                grid=grid,
+            )
             projection.append(compiled)
         # Unknown monitor types are silently skipped at compile time
 
@@ -587,6 +606,7 @@ def compile_simulation(
     dt: float | None = None,
     max_steps: int | None = None,
     shutoff_check_interval: int = 10,
+    num_chunks: tuple[int, int, int] = (1, 1, 1),
 ) -> CompiledSimulation:
     """Compile a public Simulation into all runtime artifacts needed for execution.
 
@@ -606,6 +626,10 @@ def compile_simulation(
         is derived from ``run_time`` and ``dt``.
     shutoff_check_interval : int, default=10
         Interval for convergence checks when shutoff is enabled.
+    num_chunks : tuple[int, int, int], default=(1, 1, 1)
+        Chunk decomposition for multi-GPU execution. Use (1, 1, 1) for
+        single-GPU (monolithic) execution, or e.g. (2, 1, 1) to split
+        the domain along the x-axis across 2 GPUs.
 
     Returns
     -------
@@ -710,7 +734,7 @@ def compile_simulation(
         resolved_grid.z.cell_sizes[0] if resolved_grid.z.cell_sizes else 1.0,
     )
     chunk_layout = build_chunk_layout(
-        num_chunks=(1, 1, 1),  # Phase 1: monolithic single-chunk
+        num_chunks=num_chunks,
         grid_shape=grid_shape,
         cell_sizes=cell_sizes,
         boundary_spec=compiled_boundaries.boundary_spec,

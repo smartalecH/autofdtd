@@ -623,6 +623,8 @@ def compile_mode_source(
     cross_section = ModeSolverCrossSection(
         normal_axis=normal_axis,
         position=source.center[normal_axis],
+        bend_radius=source.bend_radius,
+        bend_axis=source.bend_axis,
     )
 
     # Build mode solver config
@@ -668,29 +670,34 @@ def compile_mode_source(
     h_field_data: dict[str, np.ndarray] = {}
 
     # The field arrays in ModeSolution are flattened (real, imag) tuples
-    # The mode solver produces fields on a (nx-1) x (ny-1) grid due to the
-    # staggered grid formulation, even though x_coords and y_coords have
-    # nx and ny elements respectively
+    # The mode solver produces fields on an nx x ny grid matching the
+    # coordinate arrays, then downsamples to (nx-1, ny-1) cell-centered grids
     nx = len(x_coords)
     ny = len(y_coords)
-    field_nx = nx - 1
-    field_ny = ny - 1
+    # All field components (E and H) are downsampled to cell-centered (nx-1, ny-1)
+    # Note: numpy arrays are indexed as [ny, nx]; reshape order is (ny, nx)
+    field_nx = ny - 1
+    field_ny = nx - 1
 
     def _parse_field_component(
         component_data: tuple[tuple[float, float], ...],
+        name: str = "unknown",
     ) -> np.ndarray:
         """Parse (real, imag) tuple array into complex numpy array."""
-        parsed = np.zeros(len(component_data), dtype=np.complex128)
+        actual_len = len(component_data)
+        parsed = np.zeros(actual_len, dtype=np.complex128)
         for i, (re, im) in enumerate(component_data):
             parsed[i] = complex(re, im)
-        return parsed.reshape((field_nx, field_ny))
+        # numpy arrays are indexed as [ny, nx]; mode solver returns field_nx * field_ny elements
+        # with x varying fastest (C order), so reshape to (field_ny, field_nx) = (nx-1, ny-1)
+        return parsed.reshape((field_ny, field_nx))
 
-    e_field_data["Ex"] = _parse_field_component(selected_mode.Ex)
-    e_field_data["Ey"] = _parse_field_component(selected_mode.Ey)
-    e_field_data["Ez"] = _parse_field_component(selected_mode.Ez)
-    h_field_data["Hx"] = _parse_field_component(selected_mode.Hx)
-    h_field_data["Hy"] = _parse_field_component(selected_mode.Hy)
-    h_field_data["Hz"] = _parse_field_component(selected_mode.Hz)
+    e_field_data["Ex"] = _parse_field_component(selected_mode.Ex, "Ex")
+    e_field_data["Ey"] = _parse_field_component(selected_mode.Ey, "Ey")
+    e_field_data["Ez"] = _parse_field_component(selected_mode.Ez, "Ez")
+    h_field_data["Hx"] = _parse_field_component(selected_mode.Hx, "Hx")
+    h_field_data["Hy"] = _parse_field_component(selected_mode.Hy, "Hy")
+    h_field_data["Hz"] = _parse_field_component(selected_mode.Hz, "Hz")
 
     return CompiledModeSource(
         source=source,
@@ -964,31 +971,46 @@ def _compute_gaussian_weights(
         waist_distance: Distance from waist to injection plane
 
     Returns:
-        Tuple of Gaussian weights for each placement
+        Tuple of Gaussian weights for each placement (matches placements length)
     """
-    # Get the two tangential axes
-    tang_axes = tuple(a for a in range(3) if a != injection_axis)
-
-    # Extract centers for tangential axes
-    centers = [
-        axis_placements[tang_axes[0]].centers,
-        axis_placements[tang_axes[1]].centers,
-    ]
-
-    # Rayleigh range from waist radius: z_R = pi * w0^2 / lambda
-    # For now, we use a simplified model where the Gaussian profile
-    # is computed in the transverse plane at the injection location
+    # For beam injection, we need to compute the Gaussian amplitude at each
+    # cell center in the tangential plane, multiplied by the interpolation weights
+    # from all three axes (to match the number of placements)
     weights: list[float] = []
 
-    # For beam injection, we need to compute the Gaussian amplitude at each
-    # cell center in the tangential plane
-    for x_c in centers[0]:
-        for y_c in centers[1]:
-            # Radial distance from beam center in the transverse plane
-            r_squared = x_c * x_c + y_c * y_c
-            # Gaussian envelope: exp(-2 * r^2 / w^2)
-            weight = math.exp(-2.0 * r_squared / (waist_radius * waist_radius))
-            weights.append(weight)
+    # axis_placements[axis].centers is already the subset of centers for this placement
+    # (same length as indices and weights for that axis)
+    # We iterate by position (0, 1, 2, ...) not by cell index
+    for x_pos in range(len(axis_placements[0].weights)):
+        for y_pos in range(len(axis_placements[1].weights)):
+            for z_pos in range(len(axis_placements[2].weights)):
+                # Get centers for Gaussian computation
+                x_c = axis_placements[0].centers[x_pos]
+                y_c = axis_placements[1].centers[y_pos]
+                z_c = axis_placements[2].centers[z_pos]
+
+                # Get interpolation weights
+                x_w = axis_placements[0].weights[x_pos]
+                y_w = axis_placements[1].weights[y_pos]
+                z_w = axis_placements[2].weights[z_pos]
+
+                # Radial distance from beam center in the transverse plane
+                # For injection axis, the position is along injection direction
+                # For tangential axes, we compute distance from beam center
+                r_squared = 0.0
+                if injection_axis != 0:
+                    r_squared += x_c * x_c
+                if injection_axis != 1:
+                    r_squared += y_c * y_c
+                if injection_axis != 2:
+                    r_squared += z_c * z_c
+
+                # Gaussian envelope: exp(-2 * r^2 / w^2)
+                gaussian = math.exp(-2.0 * r_squared / (waist_radius * waist_radius))
+
+                # Combined weight: Gaussian * all interpolation weights
+                weight = gaussian * x_w * y_w * z_w
+                weights.append(weight)
 
     return tuple(weights)
 

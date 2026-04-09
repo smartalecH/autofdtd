@@ -27,6 +27,7 @@ class Task:
     last_duration: str
     completed_at: str
     notes: str
+    blocked_by: str = ""  # comma-separated list of task IDs that block this task
 
 
 HEADING_RE = re.compile(r"^## \[(?P<status>[A-Z]+)\] (?P<task_id>[a-z0-9-]+) - (?P<title>.+)$")
@@ -81,6 +82,7 @@ def parse_spec(path: Path) -> tuple[str, list[Task]]:
             "last_duration": "-",
             "completed_at": "-",
             "notes": "",
+            "blocked_by": "",
         }
         for line in block[1:]:
             if line.startswith("Success:"):
@@ -95,6 +97,8 @@ def parse_spec(path: Path) -> tuple[str, list[Task]]:
                 data["completed_at"] = line.split(":", 1)[1].strip()
             elif line.startswith("Notes:"):
                 data["notes"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Blocked By:"):
+                data["blocked_by"] = line.split(":", 1)[1].strip()
         tasks.append(
             Task(
                 task_id=data["task_id"],
@@ -106,6 +110,7 @@ def parse_spec(path: Path) -> tuple[str, list[Task]]:
                 last_duration=data["last_duration"],
                 completed_at=data["completed_at"],
                 notes=data["notes"],
+                blocked_by=data["blocked_by"],
             )
         )
     return "\n".join(prefix).rstrip() + "\n\n", tasks
@@ -118,6 +123,7 @@ def write_spec(path: Path, header: str, tasks: Iterable[Task]) -> None:
             [
                 f"## [{task.status}] {task.task_id} - {task.title}",
                 f"Success: {task.success}",
+                f"Blocked By: {task.blocked_by}" if task.blocked_by else f"Blocked By: —",
                 f"Attempts: {task.attempts}",
                 f"Last Run: {task.last_run}",
                 f"Last Duration: {task.last_duration}",
@@ -392,6 +398,7 @@ def run_claude(
     prompt_text: str,
     run_dir: Path,
     console_path: Path,
+    task_id: str = "",
 ) -> int:
     """Run Claude Code in headless (-p) mode using stream-json for reliable I/O."""
     env = os.environ.copy()
@@ -494,8 +501,21 @@ def run_claude(
 
     exit_code = process.wait()
 
-    # Build result.json in the expected schema format
+    # Prefer the agent's actual result from phase2/results/ if it exists
     result_path = run_dir / "result.json"
+    agent_result_path = bundle_dir / "results" / f"{task_id}-result.json"
+    if agent_result_path.exists():
+        try:
+            agent_result = json.loads(agent_result_path.read_text())
+            # Validate it has the expected schema fields
+            if isinstance(agent_result, dict) and "status" in agent_result:
+                append_console(console_path, f"  → Using agent result from {agent_result_path}")
+                result_path.write_text(json.dumps(agent_result, indent=2))
+                return exit_code
+        except (json.JSONDecodeError, OSError):
+            pass  # Fall through to fabricated result
+
+    # Build result.json in the expected schema format (fallback)
     if result_data:
         is_error = result_data.get("is_error", False)
         stop_reason = result_data.get("stop_reason", "")
@@ -765,6 +785,7 @@ def main() -> int:
                 prompt_text,
                 run_dir,
                 console_path,
+                task_id=task.task_id,
             )
         else:
             exit_code = run_codex(
@@ -776,7 +797,59 @@ def main() -> int:
                 console_path,
             )
         elapsed = (datetime.now(timezone.utc) - start).total_seconds()
-        result = load_result(run_dir / "result.json", task.task_id)
+        # Prefer agent-written honest result from bundle_dir/results/ over
+        # the loop-copied fallback in run_dir/result.json
+        agent_result_path = bundle_dir / "results" / f"task-{task.task_id}-result.json"
+        if agent_result_path.exists():
+            result = json.loads(agent_result_path.read_text())
+        else:
+            result = load_result(run_dir / "result.json", task.task_id)
+
+        # Ground-truth guard: example tasks must compare FDTD output to analytical/semi-analytical
+        # reference, not just validate multi-GPU self-consistency. If ground_truth_error is missing
+        # or the comparison is self-consistency-only (single-vs-multi-GPU), force needs_retry.
+        # Also check provenance to detect fabricated results.
+        task_id_str = task.task_id or ""
+        if task_id_str.startswith("task-") and task_id_str[5:].isdigit():
+            task_num = int(task_id_str[5:])
+            if 101 <= task_num <= 118:
+                gt = result.get("ground_truth_error", {})
+                if not gt or not isinstance(gt, dict):
+                    append_console(console_path, f"  ⚠ ground_truth_error missing for {task.task_id} — forcing needs_retry")
+                    result_status = "needs_retry"
+                    result["status"] = "needs_retry"
+                    result["summary"] = (result.get("summary") or "") + " [GROUND TRUTH MISSING]"
+                elif not gt.get("reference_source"):
+                    append_console(console_path, f"  ⚠ ground_truth_error.reference_source missing for {task.task_id} — forcing needs_retry")
+                    result_status = "needs_retry"
+                    result["status"] = "needs_retry"
+                    result["summary"] = (result.get("summary") or "") + " [GROUND TRUTH MISSING]"
+
+                # Provenance guard: check that physics actually ran (not fabricated)
+                prov = result.get("provenance", {})
+                e_max = prov.get("E_max", None)
+                total_cells = prov.get("total_cells", 0)
+                num_steps = prov.get("num_steps", 0)
+                runtime = prov.get("runtime_seconds", 0)
+
+                if e_max is None or total_cells == 0 or num_steps == 0:
+                    append_console(console_path, f"  ⚠ provenance missing for {task.task_id} — forcing needs_retry")
+                    result_status = "needs_retry"
+                    result["status"] = "needs_retry"
+                    result["summary"] = (result.get("summary") or "") + " [PROVENANCE MISSING]"
+                elif e_max < 1e-10 and result.get("status") == "completed":
+                    # Source injection bug — zero fields mean ground-truth comparison is meaningless
+                    append_console(console_path, f"  ⚠ E_max={e_max:.2e} for {task.task_id} — source injection failed, forcing needs_retry")
+                    result_status = "needs_retry"
+                    result["status"] = "needs_retry"
+                    result["summary"] = (result.get("summary") or "") + " [ZERO FIELDS — SOURCE INJECTION BUG]"
+                elif runtime < 0.1 and total_cells > 1000:
+                    # Simulation that large shouldn't finish in < 100ms — likely fabricated
+                    append_console(console_path, f"  ⚠ runtime={runtime:.2f}s for {total_cells} cells — suspiciously fast, forcing needs_retry")
+                    result_status = "needs_retry"
+                    result["status"] = "needs_retry"
+                    result["summary"] = (result.get("summary") or "") + " [RUNTIME SUSPICIOUS]"
+
         result_status = str(result.get("status", "failed"))
         summary = str(result.get("summary", "")).strip() or "No summary provided."
         key_findings = result.get("key_findings", [])
@@ -788,6 +861,26 @@ def main() -> int:
         if result_status == "completed":
             task.status = "COMPLETED"
             task.completed_at = now_iso()
+            # Auto-unblock: any task that was blocked by this one is now runnable
+            completed_id = task.task_id
+            unblocked = []
+            for t in tasks:
+                if t.status == "BLOCKED" and t.blocked_by:
+                    blockers = [b.strip() for b in t.blocked_by.split(",")]
+                    if completed_id in blockers:
+                        # Check all blockers are now COMPLETED
+                        all_done = all(
+                            any(x.task_id == b and x.status == "COMPLETED" for x in tasks)
+                            for b in blockers
+                        )
+                        if all_done:
+                            t.status = "QUEUED"
+                            unblocked.append(t.task_id)
+            if unblocked:
+                append_console(
+                    console_path,
+                    f"  → Auto-unblocked: {', '.join(unblocked)}",
+                )
         elif result_status == "blocked":
             task.status = "BLOCKED"
             task.completed_at = "-"
