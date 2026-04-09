@@ -24,6 +24,7 @@ REPOS=(
   "GeometryPrimitives.jl|https://github.com/stevengj/GeometryPrimitives.jl.git"
   "VectorModesolver.jl|https://github.com/ianmatthewhammond/VectorModesolver.jl.git"
   "libctl|https://github.com/NanoComp/libctl.git"
+  "fdtd-pipeline|https://github.com/JPPhotonics/fdtd-pipeline.git"
 )
 
 echo "Repo root: $REPO_ROOT"
