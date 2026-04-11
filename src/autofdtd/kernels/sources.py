@@ -268,9 +268,9 @@ def _launch_gpu_inject_kernel(
     w_flat = np.array(placement_weights, dtype=np.float32)
     dev_weights = wp.array(data=w_flat, dtype=wp.float32, ndim=1, device=dev)
 
-    # Real amplitude for float32 injection - use magnitude to handle
-    # complex amplitudes (GaussianPulse remove_dc=True gives imaginary amplitude)
-    amp_real = float(abs(amplitude))
+    # Real amplitude for float32 injection - use real part to preserve sign.
+    # The complex phase from remove_dc_component=True is valid and needed.
+    amp_real = float(amplitude.real)
 
     # field_kind_axis: 0=electric, 1=magnetic
     fk_axis = 0 if field_kind == "electric" else 1
@@ -577,7 +577,16 @@ def inject_custom_field_source(
     direction_sign = 1.0 if compiled_source.direction == "+" else -1.0
     injection_axis = compiled_source.injection_axis
 
+    # Equivalence principle:
+    # For electric field data: M = -n̂ × E  -> affects H components
+    # For magnetic field data: J = n̂ × H  -> affects E components
+    # The cross-product determines which field component gets the contribution.
+    # n̂ = (nx, ny, nz) where injection_axis determines which component is 1.
+    n_vec = [0.0, 0.0, 0.0]
+    n_vec[injection_axis] = 1.0
+
     if compiled_source.has_electric and compiled_source.e_field_data is not None:
+        # M = -n̂ × E: magnetic current density from incident E fields
         for placement, weight in zip(
             compiled_source.placements,
             compiled_source.placement_weights,
@@ -585,16 +594,21 @@ def inject_custom_field_source(
         ):
             for field_key, field_values in compiled_source.e_field_data.items():
                 if field_key in ("Ex", "Ey", "Ez"):
-                    axis = "xyz".index(field_key[1].lower())
-                    if axis == injection_axis:
+                    field_axis = "xyz".index(field_key[1].lower())
+                    if field_axis == injection_axis:
                         continue
                     if len(field_values) == len(compiled_source.placements):
                         idx = compiled_source.placements.index(placement)
-                        updated_magnetic[placement][injection_axis] += (
-                            amplitude * weight * direction_sign * field_values[idx]
-                        )
+                        # M_x = ny*Ez - nz*Ey, M_y = nz*Ex - nx*Ez, M_z = nx*Ey - ny*Ex
+                        m_x = n_vec[1] * field_values[idx] if field_key == "Ez" else -n_vec[2] * field_values[idx] if field_key == "Ey" else 0.0
+                        m_y = n_vec[2] * field_values[idx] if field_key == "Ex" else -n_vec[0] * field_values[idx] if field_key == "Ez" else 0.0
+                        m_z = n_vec[0] * field_values[idx] if field_key == "Ey" else -n_vec[1] * field_values[idx] if field_key == "Ex" else 0.0
+                        updated_magnetic[placement][0] += amplitude * weight * direction_sign * m_x
+                        updated_magnetic[placement][1] += amplitude * weight * direction_sign * m_y
+                        updated_magnetic[placement][2] += amplitude * weight * direction_sign * m_z
 
     if compiled_source.has_magnetic and compiled_source.h_field_data is not None:
+        # J = n̂ × H: electric current density from incident H fields
         for placement, weight in zip(
             compiled_source.placements,
             compiled_source.placement_weights,
@@ -602,14 +616,18 @@ def inject_custom_field_source(
         ):
             for field_key, field_values in compiled_source.h_field_data.items():
                 if field_key in ("Hx", "Hy", "Hz"):
-                    axis = "xyz".index(field_key[1].lower())
-                    if axis == injection_axis:
+                    field_axis = "xyz".index(field_key[1].lower())
+                    if field_axis == injection_axis:
                         continue
                     if len(field_values) == len(compiled_source.placements):
                         idx = compiled_source.placements.index(placement)
-                        updated_electric[placement][injection_axis] += (
-                            amplitude * weight * direction_sign * field_values[idx]
-                        )
+                        # J_x = ny*Hz - nz*Hy, J_y = nz*Hx - nx*Hz, J_z = nx*Hy - ny*Hx
+                        j_x = n_vec[1] * field_values[idx] if field_key == "Hz" else -n_vec[2] * field_values[idx] if field_key == "Hy" else 0.0
+                        j_y = n_vec[2] * field_values[idx] if field_key == "Hx" else -n_vec[0] * field_values[idx] if field_key == "Hz" else 0.0
+                        j_z = n_vec[0] * field_values[idx] if field_key == "Hy" else -n_vec[1] * field_values[idx] if field_key == "Hx" else 0.0
+                        updated_electric[placement][0] += amplitude * weight * direction_sign * j_x
+                        updated_electric[placement][1] += amplitude * weight * direction_sign * j_y
+                        updated_electric[placement][2] += amplitude * weight * direction_sign * j_z
 
     if is_warp:
         new_E = wp.array(data=updated_electric, dtype=wp.float32, device=dev)
@@ -765,8 +783,8 @@ def inject_plane_wave(
         _launch_plane_wave_gpu_kernel(
             electric_field, magnetic_field,
             compiled_source.placements, compiled_source.placement_weights,
-            float(abs(e_tang_a)), float(abs(e_tang_b)),
-            float(abs(h_tang_a)), float(abs(h_tang_b)),
+            float(e_tang_a), float(e_tang_b),
+            float(h_tang_a), float(h_tang_b),
             float(direction_sign), 2,  # field_kind_axis=2 means both E and H
             tang_axis_a, tang_axis_b,
             injection_axis,
@@ -812,16 +830,31 @@ def inject_plane_wave(
 
     z0_normalized = 1.0
 
+    # Get k-vector components for spatial phase gradient (angled incidence)
+    if freq is None:
+        freq = 1e14
+    kx = compiled_source.kx_func(freq, 1.0) if compiled_source.kx_func else 0.0
+    ky = compiled_source.ky_func(freq, 1.0) if compiled_source.ky_func else 0.0
+    kz = compiled_source.kz_func(freq, 1.0) if compiled_source.kz_func else 0.0
+
+    # Get support bounds for position calculation
+    (x_min, y_min, z_min), _ = compiled_source.support_bounds
+
     for placement, weight in zip(
         compiled_source.placements,
         compiled_source.placement_weights,
         strict=True,
     ):
-        e_tang_a = pol_hat[tang_axis_a] * amplitude * weight
-        e_tang_b = pol_hat[tang_axis_b] * amplitude * weight
+        # Compute position-dependent phase for angled plane wave
+        # phase = exp(i * k . r) where k = (kx, ky, kz) and r = (x, y, z)
+        px, py, pz = placement
+        phase = np.exp(1j * (kx * px + ky * py + kz * pz))
 
-        h_tang_a = h_dir[tang_axis_a] * amplitude * weight / z0_normalized
-        h_tang_b = h_dir[tang_axis_b] * amplitude * weight / z0_normalized
+        e_tang_a = pol_hat[tang_axis_a] * amplitude * weight * phase
+        e_tang_b = pol_hat[tang_axis_b] * amplitude * weight * phase
+
+        h_tang_a = h_dir[tang_axis_a] * amplitude * weight / z0_normalized * phase
+        h_tang_b = h_dir[tang_axis_b] * amplitude * weight / z0_normalized * phase
 
         if direction_sign > 0:
             updated_electric[placement][tang_axis_a] += (-h_tang_b) * direction_sign
@@ -901,19 +934,28 @@ def inject_gaussian_beam(
 
     z0_normalized = 1.0
 
+    # beam_weights are now complex (w0/w_z)*exp(-r^2/w_z^2)*exp(i*(k*z+k*r^2*inv_r_z/2-psi))
+    # amplitude is complex from source time (carrier phase)
+    # Use real part of complex product for real-valued FDTD field updates
     for placement, placement_weight, beam_weight in zip(
         compiled_source.placements,
         compiled_source.placement_weights,
         compiled_source.beam_weights,
         strict=True,
     ):
-        combined_weight = placement_weight * beam_weight
+        # Complex field amplitude: amplitude * beam_weight
+        # beam_weight is complex from paraxial Gaussian beam formula
+        beam_complex = complex(beam_weight)
+        field_complex = amplitude * beam_complex
+        # Real part goes into the field (imaginary part is reactive energy at injection plane)
+        field_real = field_complex.real
+        combined = placement_weight * field_real
 
-        e_tang_a = pol_hat[tang_axis_a] * amplitude * combined_weight
-        e_tang_b = pol_hat[tang_axis_b] * amplitude * combined_weight
+        e_tang_a = pol_hat[tang_axis_a] * combined
+        e_tang_b = pol_hat[tang_axis_b] * combined
 
-        h_tang_a = h_dir[tang_axis_a] * amplitude * combined_weight / z0_normalized
-        h_tang_b = h_dir[tang_axis_b] * amplitude * combined_weight / z0_normalized
+        h_tang_a = h_dir[tang_axis_a] * combined / z0_normalized
+        h_tang_b = h_dir[tang_axis_b] * combined / z0_normalized
 
         if direction_sign > 0:
             updated_electric[placement][tang_axis_a] += (-h_tang_b) * direction_sign
@@ -1114,39 +1156,100 @@ def inject_tfsf(
     # Get TFSF bounds indices
     (imin, jmin, kmin), (imax, jmax, kmax) = compiled_source.tfsf_bounds_indices
 
-    # For each placement in the TFSF volume, inject the plane wave fields
-    # via equivalence principle (same as plane wave injection)
-    for placement, weight in zip(
-        compiled_source.placements,
-        compiled_source.placement_weights,
-        strict=True,
-    ):
-        # E field at this position (along polarization)
-        e_tang_a = pol_hat[tang_axis_a] * amplitude * weight
-        e_tang_b = pol_hat[tang_axis_b] * amplitude * weight
+    # TFSF boundary: inject only at the 6 faces of the TFSF box
+    # The TFSF box separates total-field (inside) from scattered-field (outside).
+    # The incident field is injected at the injection plane (one face), and the
+    # TF/SF boundary correction is applied at all 6 faces by adding/subtracting
+    # the incident field using the equivalence principle.
+    #
+    # For each face:
+    #   - J = n × H_inc → contributes to E along tangential axes
+    #   - M = -n × E_inc → contributes to H along tangential axes
+    #
+    # The 6 faces are: imin (neg), imax (pos) along injection_axis,
+    # plus jmin, jmax along tang_axis_a, plus kmin, kmax along tang_axis_b
 
-        # H field at this position (perpendicular to both k and pol)
-        h_tang_a = h_dir[tang_axis_a] * amplitude * weight / z0_normalized
-        h_tang_b = h_dir[tang_axis_b] * amplitude * weight / z0_normalized
+    # Build list of 6 faces, each face defined by (axis, face_index, direction_sign)
+    # The normal direction points OUTWARD from the TFSF box
+    faces = [
+        (injection_axis, imin, -1.0),   # negative face of injection axis, outward normal = -axis
+        (injection_axis, imax, +1.0),   # positive face of injection axis, outward normal = +axis
+        (tang_axis_a, jmin, -1.0),      # negative face along tang_axis_a
+        (tang_axis_a, jmax, +1.0),      # positive face along tang_axis_a
+        (tang_axis_b, kmin, -1.0),      # negative face along tang_axis_b
+        (tang_axis_b, kmax, +1.0),      # positive face along tang_axis_b
+    ]
 
-        # Apply via equivalence principle:
-        # J = n × H → contributes to E along tangential axes
-        # M = -n × E → contributes to H along tangential axes
+    # For each of the 6 faces, apply the equivalence principle correction
+    for axis, face_idx, outward_sign in faces:
+        # Determine the iteration range for this face
+        if axis == injection_axis:
+            # Injection axis face: iterate over tang_axis_a × tang_axis_b cross-section
+            i_rng = range(imin + 1, imax) if outward_sign < 0 else range(imax - 1, imax)
+            j_rng = range(jmin, jmax + 1)
+            k_rng = range(kmin, kmax + 1)
+        elif axis == tang_axis_a:
+            # tang_axis_a face: iterate over injection_axis × tang_axis_b cross-section
+            i_rng = range(imin, imax + 1)
+            k_rng = range(kmin, kmax + 1)
+            # j is fixed at the face layer (inner edge)
+            if outward_sign < 0:
+                j_face = jmin + 1
+            else:
+                j_face = jmax - 1
+            j_rng = [j_face]
+        else:  # axis == tang_axis_b
+            # tang_axis_b face: iterate over injection_axis × tang_axis_a cross-section
+            i_rng = range(imin, imax + 1)
+            j_rng = range(jmin, jmax + 1)
+            # k is fixed at the face layer (inner edge)
+            if outward_sign < 0:
+                k_face = kmin + 1
+            else:
+                k_face = kmax - 1
+            k_rng = [k_face]
 
-        if direction_sign > 0:
-            # Forward: H tangential contributes to E via J = n × H
-            updated_electric[placement][tang_axis_a] += (-h_tang_b) * direction_sign
-            updated_electric[placement][tang_axis_b] += h_tang_a * direction_sign
-            # M = -n × E gives H update from E tangential
-            updated_magnetic[placement][tang_axis_a] += (-e_tang_b) * direction_sign
-            updated_magnetic[placement][tang_axis_b] += e_tang_a * direction_sign
-        else:
-            # Backward: E tangential contributes to H via M = -n × E
-            updated_magnetic[placement][tang_axis_a] += (-e_tang_b) * direction_sign
-            updated_magnetic[placement][tang_axis_b] += e_tang_a * direction_sign
-            # H tangential contributes to E via J = n × H
-            updated_electric[placement][tang_axis_a] += (-h_tang_b) * direction_sign
-            updated_electric[placement][tang_axis_b] += h_tang_a * direction_sign
+        # Iterate over all cells on this face
+        for i in i_rng:
+            for j in j_rng:
+                for k in k_rng:
+                    placement = (i, j, k)
+                    # Compute position-dependent amplitude (for angled incidence)
+                    # The amplitude at this cell includes the spatial phase from the
+                    # plane wave k-vector if available, otherwise uniform
+                    try:
+                        idx = compiled_source.placements.index(placement)
+                        weight = compiled_source.placement_weights[idx]
+                    except ValueError:
+                        weight = 1.0
+
+                    # E field at this position (along polarization)
+                    e_tang_a = pol_hat[tang_axis_a] * amplitude * weight
+                    e_tang_b = pol_hat[tang_axis_b] * amplitude * weight
+
+                    # H field at this position (perpendicular to both k and pol)
+                    h_tang_a = h_dir[tang_axis_a] * amplitude * weight / z0_normalized
+                    h_tang_b = h_dir[tang_axis_b] * amplitude * weight / z0_normalized
+
+                    # Apply equivalence principle with outward normal direction
+                    # The normal points outward from the TFSF box interior
+                    n_tang_a = 1 if tang_axis_a != axis else 0
+                    n_tang_b = 1 if tang_axis_b != axis else 0
+
+                    if outward_sign > 0:
+                        # Outward normal +: H contributes to E via J = n × H
+                        updated_electric[placement][tang_axis_a] += (-h_tang_b) * n_tang_a
+                        updated_electric[placement][tang_axis_b] += h_tang_a * n_tang_b
+                        # M = -n × E gives H update from E
+                        updated_magnetic[placement][tang_axis_a] += (-e_tang_b) * n_tang_a
+                        updated_magnetic[placement][tang_axis_b] += e_tang_a * n_tang_b
+                    else:
+                        # Outward normal -: E contributes to H via M = -n × E
+                        updated_magnetic[placement][tang_axis_a] += (-e_tang_b) * n_tang_a
+                        updated_magnetic[placement][tang_axis_b] += e_tang_a * n_tang_b
+                        # H contributes to E via J = n × H
+                        updated_electric[placement][tang_axis_a] += (-h_tang_b) * n_tang_a
+                        updated_electric[placement][tang_axis_b] += h_tang_a * n_tang_b
 
     if is_warp:
         new_E = wp.array(data=updated_electric, dtype=wp.float32, device=dev)

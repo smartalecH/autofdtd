@@ -102,6 +102,33 @@ class ModeSolverCrossSection(TaggedModel):
         "For bend_axis=1, the bend is in the x-z plane (curving around y). "
         "For bend_axis=0, the bend is in the y-z plane (curving around x).",
     )
+    # PML (Perfectly Matched Layer) parameters for absorbing radiation modes
+    num_pml_layers: int = Field(
+        default=0,
+        description="Number of PML layers at each boundary. "
+        "PML absorbs radiation modes and allows finding leaky modes. "
+        "Typical values are 10-30 layers.",
+    )
+    pml_sigma_max: float = Field(
+        default=2.0,
+        description="Maximum PML conductivity (sigma) in units of sigma_max formula. "
+        "Controls absorption strength. Higher values absorb more but may cause reflections.",
+    )
+    pml_kappa_min: float = Field(
+        default=1.0,
+        description="Minimum PML kappa (real part of s-factor) at inner boundary. "
+        "Kappa stretches coordinates to increase absorption.",
+    )
+    pml_kappa_max: float = Field(
+        default=3.0,
+        description="Maximum PML kappa (real part of s-factor) at outer boundary. "
+        "The kappa profile goes from kappa_min at inner edge to kappa_max at outer edge.",
+    )
+    pml_order: int = Field(
+        default=3,
+        description="Polynomial order of PML absorption profile. "
+        "Higher orders absorb more strongly near outer boundary but may cause reflections.",
+    )
 
     @field_validator("position")
     @classmethod
@@ -117,6 +144,46 @@ class ModeSolverCrossSection(TaggedModel):
         if not math.isfinite(radius) or radius <= 0.0:
             raise ValueError("bend_radius must be positive")
         return radius
+
+    @field_validator("num_pml_layers")
+    @classmethod
+    def _validate_num_pml_layers(cls, value: int) -> int:
+        numeric = int(value)
+        if numeric < 0:
+            raise ValueError("num_pml_layers must be non-negative")
+        return numeric
+
+    @field_validator("pml_sigma_max")
+    @classmethod
+    def _validate_pml_sigma_max(cls, value: float) -> float:
+        numeric = float(value)
+        if numeric <= 0:
+            raise ValueError("pml_sigma_max must be positive")
+        return numeric
+
+    @field_validator("pml_kappa_min")
+    @classmethod
+    def _validate_pml_kappa_min(cls, value: float) -> float:
+        numeric = float(value)
+        if numeric < 1.0:
+            raise ValueError("pml_kappa_min must be >= 1.0")
+        return numeric
+
+    @field_validator("pml_kappa_max")
+    @classmethod
+    def _validate_pml_kappa_max(cls, value: float) -> float:
+        numeric = float(value)
+        if numeric < 1.0:
+            raise ValueError("pml_kappa_max must be >= 1.0")
+        return numeric
+
+    @field_validator("pml_order")
+    @classmethod
+    def _validate_pml_order(cls, value: int) -> int:
+        numeric = int(value)
+        if numeric < 1 or numeric > 4:
+            raise ValueError("pml_order must be between 1 and 4")
+        return numeric
 
 
 class ModeSolverConfig(TaggedModel):
@@ -184,6 +251,14 @@ class ModeSolution(TaggedModel):
     Hz: tuple[tuple[float, float], ...]
     # Power normalization factor
     power: float = 1.0
+    # Group index (n_g = n_eff - f * (dn_eff/df))
+    n_group: float | None = None
+    # TE fraction = integral(|Ex|^2 + |Ey|^2) / integral(|E|^2)
+    te_fraction: float | None = None
+    # TM fraction = 1 - TE_fraction
+    tm_fraction: float | None = None
+    # Effective mode area = (integral |E|^2)^2 / integral |E|^4
+    effective_area: float | None = None
 
     @property
     def num_cells(self) -> int:

@@ -702,9 +702,9 @@ class BoundarySpec(TaggedModel):
         cls, *, x: bool = True, y: bool = True, z: bool = True
     ) -> BoundarySpec:
         return cls(
-            x=Boundary.periodic() if x else Boundary.periodic(),
-            y=Boundary.periodic() if y else Boundary.periodic(),
-            z=Boundary.periodic() if z else Boundary.periodic(),
+            x=Boundary.periodic() if x else Boundary.pml(),
+            y=Boundary.periodic() if y else Boundary.pml(),
+            z=Boundary.periodic() if z else Boundary.pml(),
         )
 
     @classmethod

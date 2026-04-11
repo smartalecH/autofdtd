@@ -32,6 +32,8 @@ class CompiledFieldMonitor:
     # For frequency-domain monitors, the frequency points
     freqs: tuple[float, ...] = ()
     num_freqs: int = 1
+    # Timestep for DFT normalization
+    dt: float = 1.0
 
     @property
     def is_time_domain(self) -> bool:
@@ -116,6 +118,7 @@ def compile_field_monitor(
     overwrite: bool = True,
     freqs: tuple[float, ...] = (),
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledFieldMonitor:
     """Compile a field monitor onto the resolved grid.
 
@@ -184,6 +187,7 @@ def compile_field_monitor(
         overwrite=overwrite,
         freqs=freqs,
         num_freqs=num_freqs,
+        dt=dt,
     )
 
 
@@ -271,7 +275,7 @@ class FieldMonitorState:
             phase = np.cos(omega_t) - 1j * np.sin(omega_t)
             # dft_data shape: (n_pts, n_freqs), values shape: (n_pts,), phase shape: (n_freqs,)
             # Always expand for proper broadcasting: values[:, None] * phase[None, :]
-            self.dft_data[field] += values[:, None] * phase[None, :]
+            self.dft_data[field] += values[:, None] * phase[None, :] * self.compiled.dt
 
         self._set_dft_count(self.dft_count_value + 1)
 
@@ -285,7 +289,7 @@ class FieldMonitorState:
         if field not in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz"):
             return np.zeros(len(self.compiled.placements), dtype=np.complex128)
 
-        is_electric = field[1].lower() == "x"  # Ex, Ey, Ez are electric
+        is_electric = field[0] == "E"
 
         # Convert Warp arrays to numpy if needed
         if WARP_AVAILABLE:
@@ -334,15 +338,14 @@ class FieldMonitorState:
                 result[field] = tuples
             return result
         else:
-            # Frequency-domain: normalize DFT
+            # Frequency-domain: DFT data already includes dt scaling, no normalization needed
             # dft_data shape: (n_pts, n_freqs)
             result = {}
             if self.dft_count_value > 0:
                 for field in self.compiled.fields:
-                    normalized = self.dft_data[field] / float(self.dft_count_value)
                     tuples = tuple(
                         (float(v.real), float(v.imag))
-                        for v in normalized.flatten()
+                        for v in self.dft_data[field].flatten()
                     )
                     result[field] = tuples
             else:
@@ -422,6 +425,8 @@ class CompiledFluxMonitor:
     # For frequency-domain monitors (FluxMonitor with freqs)
     num_freqs: int = 1
     freqs: tuple[float, ...] = ()
+    # Timestep for DFT normalization
+    dt: float = 1.0
 
     @property
     def is_time_domain(self) -> bool:
@@ -451,6 +456,7 @@ def compile_flux_monitor(
     start: int = 0,
     freqs: tuple[float, ...] = (),
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledFluxMonitor:
     """Compile a flux monitor onto the resolved grid.
 
@@ -520,6 +526,7 @@ def compile_flux_monitor(
         start=start,
         num_freqs=num_freqs,
         freqs=freqs,
+        dt=dt,
     )
 
 
@@ -528,16 +535,45 @@ class FluxMonitorState:
     """Runtime state for a flux monitor.
 
     For time-domain monitors, stores flux time-series.
-    For frequency-domain monitors, accumulates DFT terms.
+    For frequency-domain monitors, accumulates DFT terms for E and H
+    separately, then computes flux in post-processing as:
+        flux = 0.5 * Re(DFT_E x conj(DFT_H))
+
+    This avoids the fundamental error of computing FT(E*H) instead of
+    FT(E) * conj(FT(H)), which are not equivalent.
     """
 
     compiled: CompiledFluxMonitor
     # Time-domain storage: flux values and time stamps
     flux_series: list[float] | None = None
     time_stamps: list[float] | None = None
-    # Frequency-domain storage: DFT accumulator
-    dft_flux: np.ndarray | None = None
+    # Frequency-domain storage: per-component DFT accumulators
+    # Tangential E and H components are stored separately, then flux is
+    # computed in post-processing as 0.5 * Re(E_DFT x conj(H_DFT))
+    dft_E1: np.ndarray | None = None  # first tangential E component
+    dft_E2: np.ndarray | None = None  # second tangential E component
+    dft_H1: np.ndarray | None = None  # first tangential H component
+    dft_H2: np.ndarray | None = None  # second tangential H component
     dft_count: int = 0
+
+    # Mapping from axis to (E1_idx, E2_idx, H1_idx, H2_idx) in field buffer
+    # electric_field buffer: [Ex, Ey, Ez] = indices [0, 1, 2]
+    # magnetic_field buffer: [Hx, Hy, Hz] = indices [0, 1, 2]
+    # Tangential components per axis:
+    # - x-normal: Ey(1), Ez(2) for E; Hy(1), Hz(2) for H
+    # - y-normal: Ex(0), Ez(2) for E; Hx(0), Hz(2) for H
+    # - z-normal: Ex(0), Ey(1) for E; Hx(0), Hy(1) for H
+    _AXIS_COMPONENTS = {
+        0: (1, 2, 1, 2),  # x-normal: Ey, Ez, Hy, Hz
+        1: (0, 2, 0, 2),  # y-normal: Ex, Ez, Hx, Hz
+        2: (0, 1, 0, 1),  # z-normal: Ex, Ey, Hx, Hy
+    }
+    # Flux formula per axis: flux = 0.5 * Re(E1 * conj(H2) - E2 * conj(H1))
+    _FLUX_FORMULA = {
+        0: "E1*conj(H2) - E2*conj(H1)",  # Ey*conj(Hz) - Ez*conj(Hy)
+        1: "E1*conj(H2) - E2*conj(H1)",  # Ex*conj(Hz) - Ez*conj(Hx)
+        2: "E1*conj(H2) - E2*conj(H1)",  # Ex*conj(Hy) - Ey*conj(Hx)
+    }
 
     def __post_init__(self):
         # For FluxMonitor without explicit freqs, record time-domain by default
@@ -548,12 +584,28 @@ class FluxMonitorState:
             object.__setattr__(self, "flux_series", [])
             object.__setattr__(self, "time_stamps", [])
         else:
-            # Frequency-domain: DFT accumulator
+            # Frequency-domain: per-component DFT accumulators
+            n_pts = self.compiled.support_point_count
             n_freqs = self.compiled.num_freqs
             object.__setattr__(
                 self,
-                "dft_flux",
-                np.zeros(n_freqs, dtype=np.complex128),
+                "dft_E1",
+                np.zeros((n_pts, n_freqs), dtype=np.complex128),
+            )
+            object.__setattr__(
+                self,
+                "dft_E2",
+                np.zeros((n_pts, n_freqs), dtype=np.complex128),
+            )
+            object.__setattr__(
+                self,
+                "dft_H1",
+                np.zeros((n_pts, n_freqs), dtype=np.complex128),
+            )
+            object.__setattr__(
+                self,
+                "dft_H2",
+                np.zeros((n_pts, n_freqs), dtype=np.complex128),
             )
             object.__setattr__(self, "dft_count", 0)
 
@@ -599,25 +651,47 @@ class FluxMonitorState:
         magnetic_field: np.ndarray,
         time: float,
     ) -> None:
-        """Accumulate DFT terms for frequency-domain flux monitor."""
+        """Accumulate DFT terms for frequency-domain flux monitor.
+
+        Accumulates DFT of tangential E and H field components SEPARATELY.
+        Flux is computed in post-processing as:
+            flux = 0.5 * Re(DFT_E x conj(DFT_H))
+
+        This avoids the fundamental error of computing FT(E*H) instead of
+        FT(E) * conj(FT(H)), which are not equivalent.
+        """
         if not self.compiled.is_frequency_domain:
             return
 
-        from autofdtd.kernels.monitors import accumulate_flux
+        from autofdtd.kernels.monitors import _field_to_numpy
 
-        flux_value = accumulate_flux(
-            electric_field,
-            magnetic_field,
-            self.compiled.direction,
-            self.compiled.normal_axis,
-            self.compiled.placements,
-        )
+        # Get field arrays
+        E = _field_to_numpy(electric_field)
+        H = _field_to_numpy(magnetic_field)
 
-        # DFT accumulation
+        # Get component indices for this axis
+        e1_idx, e2_idx, h1_idx, h2_idx = self._AXIS_COMPONENTS[
+            self.compiled.normal_axis
+        ]
+
+        # Precompute phase factors for all frequencies
         omega_t = 2.0 * np.pi * np.asarray(self.compiled.freqs) * time
-        for j, freq in enumerate(self.compiled.freqs):
-            phase = np.exp(-1j * omega_t[j])
-            self.dft_flux[j] += flux_value * phase
+        phases = np.exp(-1j * omega_t)
+
+        # Accumulate DFT for each point and component
+        for i, idx in enumerate(self.compiled.placements):
+            # Get E components (field buffer: [Ex=0, Ey=1, Ez=2])
+            e1_val = E[idx[0], idx[1], idx[2], e1_idx]
+            e2_val = E[idx[0], idx[1], idx[2], e2_idx]
+            # Get H components (field buffer: [Hx=3, Hy=4, Hz=5])
+            h1_val = H[idx[0], idx[1], idx[2], h1_idx]
+            h2_val = H[idx[0], idx[1], idx[2], h2_idx]
+
+            # Accumulate DFT: field * exp(-i*omega*t) * dt
+            self.dft_E1[i, :] += e1_val * phases * self.compiled.dt
+            self.dft_E2[i, :] += e2_val * phases * self.compiled.dt
+            self.dft_H1[i, :] += h1_val * phases * self.compiled.dt
+            self.dft_H2[i, :] += h2_val * phases * self.compiled.dt
 
         self._set_dft_count(self.dft_count_value + 1)
 
@@ -633,12 +707,30 @@ class FluxMonitorState:
                 "t": tuple(self.time_stamps) if self.time_stamps else (),
             }
         else:
-            # Frequency-domain: normalize DFT
+            # Frequency-domain: compute flux from separate E and H DFTs
+            # flux = 0.5 * Re(E1 * conj(H2) - E2 * conj(H1))
             if self.dft_count_value > 0:
-                normalized = self.dft_flux / float(self.dft_count_value)
+                # Sum over all surface points, then compute flux per frequency
+                E1_sum = np.sum(self.dft_E1, axis=0)  # shape: (n_freqs,)
+                E2_sum = np.sum(self.dft_E2, axis=0)
+                H1_sum = np.sum(self.dft_H1, axis=0)
+                H2_sum = np.sum(self.dft_H2, axis=0)
+
+                # Apply placement weights
+                weights = np.array(self.compiled.placement_weights)
+                E1_wsum = np.sum(self.dft_E1 * weights[:, np.newaxis], axis=0)
+                E2_wsum = np.sum(self.dft_E2 * weights[:, np.newaxis], axis=0)
+                H1_wsum = np.sum(self.dft_H1 * weights[:, np.newaxis], axis=0)
+                H2_wsum = np.sum(self.dft_H2 * weights[:, np.newaxis], axis=0)
+
+                # Compute flux: 0.5 * Re(E1*conj(H2) - E2*conj(H1))
+                flux_complex = 0.5 * (
+                    E1_wsum * np.conj(H2_wsum) - E2_wsum * np.conj(H1_wsum)
+                )
+
                 flux_tuples = tuple(
                     (float(v.real), float(v.imag))
-                    for v in normalized
+                    for v in flux_complex
                 )
             else:
                 flux_tuples = ()
@@ -975,6 +1067,8 @@ class CompiledModeMonitor:
     # Frequency parameters
     num_freqs: int = 1
     freqs: tuple[float, ...] = ()
+    # Timestep for DFT normalization
+    dt: float = 1.0
 
     @property
     def is_time_domain(self) -> bool:
@@ -1007,6 +1101,7 @@ def compile_mode_monitor(
     num_freqs: int = 1,
     freqs: tuple[float, ...] = (),
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledModeMonitor:
     """Compile a mode monitor onto the resolved grid.
 
@@ -1077,6 +1172,7 @@ def compile_mode_monitor(
         mode_spec=mode_spec,
         num_freqs=num_freqs,
         freqs=freqs,
+        dt=dt,
     )
 
 
@@ -1161,6 +1257,7 @@ class ModeMonitorState:
         tang_axes = tuple(a for a in range(3) if a != normal_axis)
 
         overlap = 0.0 + 0.0j
+        p_mode_accum = 0.0
 
         for i, idx in enumerate(placements):
             # Extract fields at this point
@@ -1200,29 +1297,42 @@ class ModeMonitorState:
             mHy = to_complex(mode_Hy)
             mHz = to_complex(mode_Hz)
 
-            # Poynting-like overlap: E × H* for the mode
-            # For cross-section normal to axis:
-            # - axis=0 (x-normal): S_y = E_z*H_y* - E_y*H_z*, S_z = E_y*H_x* - E_x*H_y*
-            # - axis=1 (y-normal): S_x = E_y*H_z* - E_z*H_y*, S_z = E_z*H_x* - E_x*H_z*
-            # - axis=2 (z-normal): S_x = E_y*H_z* - E_z*H_y*, S_y = E_z*H_x* - E_x*H_z*
+            # Compute mode overlap using the correct formula:
+            # forward:  a+ = (E_sim × H_mode* + E_mode* × H_sim) . n_hat / (4*P_mode)
+            # backward: a- = (E_sim × H_mode* - E_mode* × H_sim) . n_hat / (4*P_mode)
+            # where P_mode = (1/4)*Re((E_mode × H_mode*) . n_hat)
+            #
+            # For z-normal (axis 2): normal component = E_x*H_y* - E_y*H_x*
+            # For x-normal (axis 0): normal component = E_y*H_z* - E_z*H_y*
+            # For y-normal (axis 1): normal component = E_z*H_x* - E_x*H_z*
 
             if normal_axis == 0:
-                s_mode = (mEz * np.conj(mHy) - mEy * np.conj(mHz),
-                         mEx * np.conj(mHz) - mEz * np.conj(mHx))
-                s_field = (ez * np.conj(hy) - ey * np.conj(hz),
-                          ex * np.conj(hz) - ez * np.conj(hx))
-            elif normal_axis == 1:
-                s_mode = (mEz * np.conj(mHy) - mEy * np.conj(mHz),
-                          mEx * np.conj(mHz) - mEz * np.conj(mHx))
-                s_field = (ez * np.conj(hy) - ey * np.conj(hz),
-                          ex * np.conj(hz) - ez * np.conj(hx))
-            else:  # axis == 2
-                s_mode = (mEz * np.conj(mHy) - mEy * np.conj(mHz),
-                          mEx * np.conj(mHz) - mEz * np.conj(mHx))
-                s_field = (ez * np.conj(hy) - ey * np.conj(hz),
-                          ex * np.conj(hz) - ez * np.conj(hx))
+                # x-normal: tangential fields are Ey, Ez, Hy, Hz
+                e_cross_h_mode = ez * np.conj(mHy) - ey * np.conj(mHz)
+                e_mode_cross_h_sim = np.conj(mEz) * hy - np.conj(mEy) * hz
+                e_mode_cross_h_mode = mEz * np.conj(mHy) - mEy * np.conj(mHz)
 
-            overlap += s_field[0] * np.conj(s_mode[0]) + s_field[1] * np.conj(s_mode[1])
+            elif normal_axis == 1:
+                # y-normal: tangential fields are Ex, Ez, Hx, Hz
+                e_cross_h_mode = ex * np.conj(mHz) - ez * np.conj(mHx)
+                e_mode_cross_h_sim = np.conj(mEx) * hz - np.conj(mEz) * hx
+                e_mode_cross_h_mode = mEx * np.conj(mHz) - mEz * np.conj(mHx)
+
+            else:  # axis == 2
+                # z-normal: tangential fields are Ex, Ey, Hx, Hy
+                e_cross_h_mode = ey * np.conj(mHx) - ex * np.conj(mHy)
+                e_mode_cross_h_sim = np.conj(mEy) * hx - np.conj(mEx) * hy
+                e_mode_cross_h_mode = mEy * np.conj(mHx) - mEx * np.conj(mHy)
+
+            # Accumulate unnormalized overlap and mode power for normalization
+            overlap += e_cross_h_mode + e_mode_cross_h_sim
+            p_mode_accum += 0.25 * np.real(e_mode_cross_h_mode)
+
+        # Normalize by mode power
+        if abs(p_mode_accum) > 1e-12:
+            overlap = overlap / (4.0 * p_mode_accum)
+        else:
+            overlap = 0.0 + 0.0j
 
         return overlap
 
@@ -1282,7 +1392,7 @@ class ModeMonitorState:
             omega_t = 2.0 * np.pi * np.asarray(self.compiled.freqs) * time
             for j, freq in enumerate(self.compiled.freqs):
                 phase = np.exp(-1j * omega_t[j])
-                self.dft_amplitudes[j, m_idx] += overlap * phase
+                self.dft_amplitudes[j, m_idx] += overlap * phase * self.compiled.dt
 
         self._set_dft_count(self.dft_count_value + 1)
 
@@ -1304,12 +1414,11 @@ class ModeMonitorState:
                 "t": tuple(self.time_stamps) if self.time_stamps else (),
             }
         else:
-            # Frequency-domain: normalize DFT
+            # Frequency-domain: DFT data already includes dt scaling, no normalization needed
             if self.dft_count_value > 0:
-                normalized = self.dft_amplitudes / float(self.dft_count_value)
                 amplitude_tuples = tuple(
-                    tuple((float(v.real), float(v.imag)) for v in normalized[:, m_idx])
-                    for m_idx in range(normalized.shape[1])
+                    tuple((float(v.real), float(v.imag)) for v in self.dft_amplitudes[:, m_idx])
+                    for m_idx in range(self.dft_amplitudes.shape[1])
                 )
             else:
                 amplitude_tuples = ()
@@ -1363,6 +1472,8 @@ class CompiledProjectionMonitor:
     # Cell indices and weights for the source surface
     placements: tuple[tuple[int, int, int], ...] = ()
     placement_weights: tuple[float, ...] = ()
+    # Timestep for DFT normalization
+    dt: float = 1.0
 
     @property
     def is_time_domain(self) -> bool:
@@ -1417,6 +1528,7 @@ def compile_projection_monitor(
     kx: tuple[float, float, int] = (-10.0, 10.0, 21),
     ky: tuple[float, float, int] = (-10.0, 10.0, 21),
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledProjectionMonitor:
     """Compile a projection monitor onto the resolved grid.
 
@@ -1500,6 +1612,7 @@ def compile_projection_monitor(
         ky=ky,
         placements=tuple(placements),
         placement_weights=tuple(placement_weights),
+        dt=dt,
     )
 
 
@@ -1571,12 +1684,12 @@ class ProjectionMonitorState:
             for j, freq in enumerate(freqs):
                 omega_t = 2.0 * np.pi * freq * time
                 phase = np.exp(-1j * omega_t)
-                self.dft_e[i, j, 0] += ex * phase
-                self.dft_e[i, j, 1] += ey * phase
-                self.dft_e[i, j, 2] += ez * phase
-                self.dft_h[i, j, 0] += hx * phase
-                self.dft_h[i, j, 1] += hy * phase
-                self.dft_h[i, j, 2] += hz * phase
+                self.dft_e[i, j, 0] += ex * phase * self.compiled.dt
+                self.dft_e[i, j, 1] += ey * phase * self.compiled.dt
+                self.dft_e[i, j, 2] += ez * phase * self.compiled.dt
+                self.dft_h[i, j, 0] += hx * phase * self.compiled.dt
+                self.dft_h[i, j, 1] += hy * phase * self.compiled.dt
+                self.dft_h[i, j, 2] += hz * phase * self.compiled.dt
 
         self._set_dft_count(self.dft_count_value + 1)
 
@@ -1589,13 +1702,10 @@ class ProjectionMonitorState:
         if self.dft_count_value == 0:
             return {"dft_e": (), "dft_h": (), "t": ()}
 
-        # Normalize DFT
-        normalized_e = self.dft_e / float(self.dft_count_value)
-        normalized_h = self.dft_h / float(self.dft_count_value)
-
+        # DFT data already includes dt scaling, no normalization needed
         return {
-            "dft_e": normalized_e,
-            "dft_h": normalized_h,
+            "dft_e": self.dft_e,
+            "dft_h": self.dft_h,
             "t": (),
         }
 
@@ -1658,6 +1768,8 @@ class CompiledSurfaceFieldMonitor:
     # For frequency-domain monitors (SurfaceFieldMonitor with freqs)
     freqs: tuple[float, ...] = ()
     num_freqs: int = 1
+    # Timestep for DFT normalization
+    dt: float = 1.0
 
     @property
     def is_time_domain(self) -> bool:
@@ -1687,6 +1799,7 @@ def compile_surface_field_monitor(
     start: int = 0,
     freqs: tuple[float, ...] = (),
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledSurfaceFieldMonitor:
     """Compile a surface field monitor onto the resolved grid.
 
@@ -1763,6 +1876,7 @@ def compile_surface_field_monitor(
         start=start,
         freqs=freqs,
         num_freqs=num_freqs,
+        dt=dt,
     )
 
 
@@ -1850,7 +1964,7 @@ class SurfaceFieldMonitorState:
             phase = np.cos(omega_t) - 1j * np.sin(omega_t)
             # dft_data shape: (n_pts, n_freqs), values shape: (n_pts,), phase shape: (n_freqs,)
             # Always expand for proper broadcasting: values[:, None] * phase[None, :]
-            self.dft_data[field] += values[:, None] * phase[None, :]
+            self.dft_data[field] += values[:, None] * phase[None, :] * self.compiled.dt
 
         self._set_dft_count(self.dft_count_value + 1)
 
@@ -1904,15 +2018,14 @@ class SurfaceFieldMonitorState:
                 result[field] = tuples
             return result
         else:
-            # Frequency-domain: normalize DFT
+            # Frequency-domain: DFT data already includes dt scaling, no normalization needed
             # dft_data shape: (n_pts, n_freqs)
             result = {}
             if self.dft_count_value > 0:
                 for field in self.compiled.fields:
-                    normalized = self.dft_data[field] / float(self.dft_count_value)
                     tuples = tuple(
                         (float(v.real), float(v.imag))
-                        for v in normalized.flatten()
+                        for v in self.dft_data[field].flatten()
                     )
                     result[field] = tuples
             else:

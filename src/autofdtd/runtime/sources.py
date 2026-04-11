@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 
 from autofdtd.compiler.sources import (
@@ -388,21 +390,12 @@ def apply_source_injection_stage(
     time: float = 0.0,
     dt: float = 1.0,
     freq: float | None = None,
+    field_type: Literal["electric", "magnetic"] | None = None,
 ) -> tuple:
-    """Apply all compiled sources in the source_injection stage.
+    """Apply compiled sources in the source_injection stage.
 
     This is the unified entry point for source injection during a Maxwell
-    timestep. It applies all source types in the following order:
-
-    1. Uniform current sources (electric and magnetic currents)
-    2. Point dipole sources
-    3. Custom current sources
-    4. Custom field sources (equivalence principle)
-    5. Mode sources (equivalence principle with mode profile)
-    6. Plane wave sources (equivalence principle)
-    7. Gaussian beam sources (equivalence principle with Gaussian envelope)
-    8. Astigmatic Gaussian beam sources
-    9. TFSF sources (volume injection with TF/SF correction)
+    timestep. It applies source types based on the field_type parameter:
 
     Scheduling Semantics
     --------------------
@@ -412,9 +405,18 @@ def apply_source_injection_stage(
         boundary_exchange → electric_update → source_injection
         → boundary_exchange → magnetic_update → pml_stage
 
-    All sources receive the same (time, dt, freq) arguments so that sources
-    of different types remain synchronized. The caller is responsible for
-    passing consistent time values across the stage sequence.
+    When field_type is "magnetic" (H-update stage at time t):
+    - Only H-type sources are injected (uniform_current and point_dipole with
+      field_kind="magnetic"). Equivalence principle sources are NOT injected
+      at the H-update stage.
+
+    When field_type is "electric" (E-update stage at time t+dt/2):
+    - Only E-type sources are injected (uniform_current and point_dipole with
+      field_kind="electric", plus all equivalence principle sources which
+      inject both E and H simultaneously).
+
+    When field_type is None (backward compatibility / full injection):
+    - All sources are injected (legacy behavior).
 
     GPU path (wp.array input): preserved and passed directly to each inject
     function, which launches Warp kernels for in-place injection with no CPU
@@ -428,58 +430,87 @@ def apply_source_injection_stage(
     is_warp = _is_warp_array(electric_field)
 
     # Uniform current sources (electric/magnetic currents)
+    # Filter by field_kind based on field_type
     if uniform_current_sources:
-        electric_field, magnetic_field = apply_uniform_current_sources(
-            electric_field, magnetic_field, uniform_current_sources, time=time, dt=dt
-        )
+        if field_type is None:
+            # Legacy behavior: inject all
+            filtered_sources = uniform_current_sources
+        elif field_type == "magnetic":
+            # Only H-type sources at H-update stage
+            filtered_sources = tuple(s for s in uniform_current_sources if s.field_kind == "magnetic")
+        else:  # field_type == "electric"
+            # Only E-type sources at E-update stage
+            filtered_sources = tuple(s for s in uniform_current_sources if s.field_kind == "electric")
+        if filtered_sources:
+            electric_field, magnetic_field = apply_uniform_current_sources(
+                electric_field, magnetic_field, filtered_sources, time=time, dt=dt
+            )
 
     # Point dipole sources
     if point_dipole_sources:
-        electric_field, magnetic_field = apply_point_dipole_sources(
-            electric_field, magnetic_field, point_dipole_sources, time=time, dt=dt
-        )
+        if field_type is None:
+            filtered_sources = point_dipole_sources
+        elif field_type == "magnetic":
+            filtered_sources = tuple(s for s in point_dipole_sources if s.field_kind == "magnetic")
+        else:  # field_type == "electric"
+            filtered_sources = tuple(s for s in point_dipole_sources if s.field_kind == "electric")
+        if filtered_sources:
+            electric_field, magnetic_field = apply_point_dipole_sources(
+                electric_field, magnetic_field, filtered_sources, time=time, dt=dt
+            )
 
-    # Custom current sources
+    # Custom current sources - these have has_electric/has_magnetic flags
     if custom_current_sources:
-        electric_field, magnetic_field = apply_custom_current_sources(
-            electric_field, magnetic_field, custom_current_sources, time=time, dt=dt
-        )
+        if field_type is None:
+            filtered_sources = custom_current_sources
+        elif field_type == "magnetic":
+            filtered_sources = tuple(s for s in custom_current_sources if s.has_magnetic)
+        else:  # field_type == "electric"
+            filtered_sources = tuple(s for s in custom_current_sources if s.has_electric)
+        if filtered_sources:
+            electric_field, magnetic_field = apply_custom_current_sources(
+                electric_field, magnetic_field, filtered_sources, time=time, dt=dt
+            )
 
-    # Custom field sources (equivalence principle)
-    if custom_field_sources:
-        electric_field, magnetic_field = apply_custom_field_source_sources(
-            electric_field, magnetic_field, custom_field_sources, time=time, dt=dt
-        )
+    # Equivalence principle sources inject both E and H simultaneously.
+    # They belong to the E-update stage (time t+dt/2), NOT the H-update stage.
+    # At H-update stage (field_type="magnetic"), skip these.
+    if field_type != "magnetic":
+        # Custom field sources (equivalence principle)
+        if custom_field_sources:
+            electric_field, magnetic_field = apply_custom_field_source_sources(
+                electric_field, magnetic_field, custom_field_sources, time=time, dt=dt
+            )
 
-    # Mode sources (equivalence principle with mode profile)
-    if mode_sources:
-        electric_field, magnetic_field = apply_mode_sources(
-            electric_field, magnetic_field, mode_sources, time=time, dt=dt
-        )
+        # Mode sources (equivalence principle with mode profile)
+        if mode_sources:
+            electric_field, magnetic_field = apply_mode_sources(
+                electric_field, magnetic_field, mode_sources, time=time, dt=dt
+            )
 
-    # Plane wave sources (equivalence principle)
-    if plane_wave_sources:
-        electric_field, magnetic_field = apply_plane_wave_sources(
-            electric_field, magnetic_field, plane_wave_sources, time=time, dt=dt, freq=freq
-        )
+        # Plane wave sources (equivalence principle)
+        if plane_wave_sources:
+            electric_field, magnetic_field = apply_plane_wave_sources(
+                electric_field, magnetic_field, plane_wave_sources, time=time, dt=dt, freq=freq
+            )
 
-    # Gaussian beam sources (equivalence principle with Gaussian envelope)
-    if gaussian_beam_sources:
-        electric_field, magnetic_field = apply_gaussian_beam_sources(
-            electric_field, magnetic_field, gaussian_beam_sources, time=time, dt=dt, freq=freq
-        )
+        # Gaussian beam sources (equivalence principle with Gaussian envelope)
+        if gaussian_beam_sources:
+            electric_field, magnetic_field = apply_gaussian_beam_sources(
+                electric_field, magnetic_field, gaussian_beam_sources, time=time, dt=dt, freq=freq
+            )
 
-    # Astigmatic Gaussian beam sources
-    if astigmatic_gaussian_beam_sources:
-        electric_field, magnetic_field = apply_astigmatic_gaussian_beam_sources(
-            electric_field, magnetic_field, astigmatic_gaussian_beam_sources, time=time, dt=dt, freq=freq
-        )
+        # Astigmatic Gaussian beam sources
+        if astigmatic_gaussian_beam_sources:
+            electric_field, magnetic_field = apply_astigmatic_gaussian_beam_sources(
+                electric_field, magnetic_field, astigmatic_gaussian_beam_sources, time=time, dt=dt, freq=freq
+            )
 
-    # TFSF sources (volume injection with TF/SF correction)
-    if tfsf_sources:
-        electric_field, magnetic_field = apply_tfsf_sources(
-            electric_field, magnetic_field, tfsf_sources, time=time, dt=dt
-        )
+        # TFSF sources (volume injection with TF/SF correction)
+        if tfsf_sources:
+            electric_field, magnetic_field = apply_tfsf_sources(
+                electric_field, magnetic_field, tfsf_sources, time=time, dt=dt
+            )
 
     # For GPU path, each inject function returns the same wp.array (modified in-place)
     # For CPU path, each inject function returns modified numpy arrays

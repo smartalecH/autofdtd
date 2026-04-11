@@ -189,17 +189,20 @@ def _cylinder_volume_fraction(
         (x_max, y_max, z_max),
         ((x_min + x_max) / 2, (y_min + y_max) / 2, (z_min + z_max) / 2),
     ]
-    # Add face centers for the radial axes
+    # Add face centers for the radial faces
     r0, r1 = radial_axes[0], radial_axes[1]
+    # Lower face center (z_min face at y,z center of cell)
     samples.append((x_min if r0 == 0 else (y_min if r0 == 1 else z_min),
                     y_min if r1 == 1 else (x_min if r1 == 0 else z_min),
                     z_min if axis == 2 else (y_min if axis == 1 else x_min)))
+    # Upper face center (z_max face at y,z center of cell)
     samples.append((x_max if r0 == 0 else (y_max if r0 == 1 else z_max),
                     y_max if r1 == 1 else (x_max if r1 == 0 else z_max),
                     z_max if axis == 2 else (y_max if axis == 1 else x_max)))
 
     cx, cy, cz = cylinder.center
     r2 = cylinder.radius * cylinder.radius
+    half_length = cylinder.length / 2
 
     inside = 0
     total = 0
@@ -209,7 +212,6 @@ def _cylinder_volume_fraction(
         dx = coords[r0] - [cx, cy, cz][r0]
         dy = coords[r1] - [cx, cy, cz][r1]
         axial = coords[axis] - [cx, cy, cz][axis]
-        half_length = cylinder.length / 2
         if dx * dx + dy * dy <= r2 and abs(axial) <= half_length:
             inside += 1
         total += 1
@@ -515,6 +517,7 @@ def _resolve_cell_material(
     x_bounds: tuple[float, ...],
     y_bounds: tuple[float, ...],
     z_bounds: tuple[float, ...],
+    component: str | None = None,
 ) -> CellMaterial:
     """Resolve the material for one grid cell using scene precedence rules.
 
@@ -522,14 +525,45 @@ def _resolve_cell_material(
     -----
     The winning structure is the LAST structure in precedence order that contains
     the point, because later structures override earlier ones in the materialization.
+
+    Parameters
+    ----------
+    component : str | None
+        The field component for Yee-staggered epsilon sampling.
+        - "Ex": sample at (x, y+dz/2, z+dz/2) — Ex position on Yee grid
+        - "Ey": sample at (x+dx/2, y, z+dz/2) — Ey position on Yee grid
+        - "Ez": sample at (x+dx/2, y+dy/2, z) — Ez position on Yee grid
+        - None: sample at cell center (default, for precedence resolution)
     """
     x_min, x_max = x_bounds[x_idx], x_bounds[x_idx + 1]
     y_min, y_max = y_bounds[y_idx], y_bounds[y_idx + 1]
     z_min, z_max = z_bounds[z_idx], z_bounds[z_idx + 1]
 
-    # Use cell center for precedence resolution
-    x_c, y_c, z_c = (x_min + x_max) / 2, (y_min + y_max) / 2, (z_min + z_max) / 2
-    point = (x_c, y_c, z_c)
+    # Cell dimensions
+    dx = x_max - x_min
+    dy = y_max - y_min
+    dz = z_max - z_min
+
+    # Base cell center
+    x_c = (x_min + x_max) / 2
+    y_c = (y_min + y_max) / 2
+    z_c = (z_min + z_max) / 2
+
+    # Yee-staggered offset for epsilon sampling at E-field positions
+    # Ex at (i, j+1/2, k+1/2): no offset in x, half-cell offset in y and z
+    # Ey at (i+1/2, j, k+1/2): half-cell offset in x and z, no offset in y
+    # Ez at (i+1/2, j+1/2, k): half-cell offset in x and y, no offset in z
+    if component == "Ex":
+        x_s, y_s, z_s = x_c, y_c + dy / 2, z_c + dz / 2
+    elif component == "Ey":
+        x_s, y_s, z_s = x_c + dx / 2, y_c, z_c + dz / 2
+    elif component == "Ez":
+        x_s, y_s, z_s = x_c + dx / 2, y_c + dy / 2, z_c
+    else:
+        # Default: cell center (for precedence resolution)
+        x_s, y_s, z_s = x_c, y_c, z_c
+
+    point = (x_s, y_s, z_s)
 
     # Find the LAST (highest precedence) structure that contains the point
     # because later structures override earlier ones in materialization
@@ -859,9 +893,12 @@ def apply_subpixel_smoothing(
                 avg_neighbor_eps = neighbor_eps_sum / neighbor_count
                 avg_neighbor_mu = neighbor_mu_sum / neighbor_count
 
-                # Compute effective medium using the interface fraction
+                # Compute effective medium using the actual volume fraction
                 # The effective eps uses harmonic mean with neighbor average
-                f_eff = 0.5  # Approximate mid-point
+                f = material_field.volume_fractions[i, j, k]
+                # f represents the fraction of the *other* (neighbor) material
+                # So the fraction of medium_a is (1 - f)
+                f_eff = max(0.0, min(1.0, f))
                 effective_eps = _effective_permittivity_isotropic(eps_a, avg_neighbor_eps, f_eff)
                 effective_mu = _effective_permeability_isotropic(mu_a, avg_neighbor_mu, f_eff)
 
@@ -1117,6 +1154,24 @@ def assemble_coefficient_fields(
                         perm, mu, cond, m_cond = 1.0, 1.0, 0.0, 0.0
                         e_mode = ConstitutiveMode.STANDARD
                         m_mode = ConstitutiveMode.STANDARD
+
+                    # Apply subpixel smoothing: blend with background using volume fraction
+                    # f is the fraction of the *other* (neighbor/background) material
+                    # So fraction of this medium is (1 - f)
+                    if f > 0.0 and f < 1.0:
+                        # Get background medium properties
+                        bg_eps, bg_mu = _medium_eps_mu(scene.medium)
+                        # Blend: eps_eff = f * eps_background + (1-f) * eps_structure
+                        # This is arithmetic mean for the case where E is parallel to interface
+                        eps_a_safe = max(perm, 1e-20)
+                        bg_eps_safe = max(bg_eps, 1e-20)
+                        f_clamped = max(0.0, min(1.0, f))
+                        perm_blended = f_clamped * bg_eps_safe + (1.0 - f_clamped) * eps_a_safe
+                        mu_a_safe = max(mu, 1e-20)
+                        bg_mu_safe = max(bg_mu, 1e-20)
+                        mu_blended = f_clamped * bg_mu_safe + (1.0 - f_clamped) * mu_a_safe
+                        perm = perm_blended
+                        mu = mu_blended
 
                     e_decay, e_drive, m_decay, m_drive, e_clamp, m_clamp = _build_isotropic_coefficients(
                         perm, mu, cond, m_cond, e_mode, m_mode, dt

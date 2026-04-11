@@ -79,7 +79,7 @@ def build_field_monitor_runtime(
     return compiled, state
 
 
-def record_monitor_fields(
+def record_E_monitors(
     monitor_states: list[FieldMonitorState],
     electric_field,
     magnetic_field,
@@ -87,8 +87,9 @@ def record_monitor_fields(
     time: float,
     step_index: int,
 ) -> None:
-    """Record field values for all active time-domain monitors.
+    """Record E-field values for all active time-domain and frequency-domain monitors.
 
+    E-fields are recorded at time t + dt/2 (leapfrog stagger).
     This function samples the fields at each monitor's placement cells
     and stores the values in the monitor's state for later retrieval.
 
@@ -96,7 +97,7 @@ def record_monitor_fields(
         monitor_states: List of FieldMonitorState objects
         electric_field: The E field buffer with shape (nx, ny, nz, 3)
         magnetic_field: The H field buffer with shape (nx, ny, nz, 3)
-        time: Current simulation time
+        time: Current simulation time (should be t + dt/2 for E-fields)
         step_index: Current step index
     """
     for state in monitor_states:
@@ -105,13 +106,57 @@ def record_monitor_fields(
         # Check if this step should be recorded
         if step_index < compiled.start:
             continue
-        if (step_index - compiled.start) % compiled.interval != 0:
+
+        if compiled.is_time_domain:
+            # Time-domain monitors use interval-based sampling
+            if (step_index - compiled.start) % compiled.interval != 0:
+                continue
+            state.record_time_domain(electric_field, magnetic_field, time)
+        elif compiled.is_frequency_domain:
+            # DFT monitors accumulate at every step (no interval check)
+            state.accumulate_dft(electric_field, magnetic_field, time)
+
+
+def record_H_monitors(
+    monitor_states: list[FieldMonitorState],
+    electric_field,
+    magnetic_field,
+    *,
+    time: float,
+    step_index: int,
+) -> None:
+    """Record H-field values for all active time-domain and frequency-domain monitors.
+
+    H-fields are recorded at time t (leapfrog stagger).
+    This function samples the fields at each monitor's placement cells
+    and stores the values in the monitor's state for later retrieval.
+
+    Args:
+        monitor_states: List of FieldMonitorState objects
+        electric_field: The E field buffer with shape (nx, ny, nz, 3)
+        magnetic_field: The H field buffer with shape (nx, ny, nz, 3)
+        time: Current simulation time (should be t for H-fields)
+        step_index: Current step index
+    """
+    for state in monitor_states:
+        compiled = state.compiled
+
+        # Check if this step should be recorded
+        if step_index < compiled.start:
             continue
 
         if compiled.is_time_domain:
+            # Time-domain monitors use interval-based sampling
+            if (step_index - compiled.start) % compiled.interval != 0:
+                continue
             state.record_time_domain(electric_field, magnetic_field, time)
         elif compiled.is_frequency_domain:
+            # DFT monitors accumulate at every step (no interval check)
             state.accumulate_dft(electric_field, magnetic_field, time)
+
+
+# Backwards compatibility alias
+record_monitor_fields = record_E_monitors
 
 
 def extract_monitor_data(
@@ -839,12 +884,14 @@ def record_surface_monitor_fields(
         # Check if this step should be recorded
         if step_index < compiled.start:
             continue
-        if (step_index - compiled.start) % compiled.interval != 0:
-            continue
 
         if compiled.is_time_domain:
+            # Time-domain monitors use interval-based sampling
+            if (step_index - compiled.start) % compiled.interval != 0:
+                continue
             state.record_time_domain(electric_field, magnetic_field, time)
         elif compiled.is_frequency_domain:
+            # DFT monitors accumulate at every step (no interval check)
             state.accumulate_dft(electric_field, magnetic_field, time)
 
 

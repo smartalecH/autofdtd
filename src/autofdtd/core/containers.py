@@ -214,7 +214,7 @@ class Simulation(Scene):
     grid_spec: object | None = None
     symmetry: tuple[int, int, int] = (0, 0, 0)
     shutoff: float | None = 1.0e-5
-    courant: float = 0.99
+    courant: float = 0.9
     subpixel: object | None = None
     normalize_index: int | None = None
     relax_courant: bool = False
@@ -223,8 +223,15 @@ class Simulation(Scene):
     version: str = __version__
 
     def resolved_grid(self) -> ResolvedGrid | None:
-        """Resolve the simulation grid_spec against the simulation domain."""
-        return resolve_grid_spec(self.grid_spec, center=self.center, size=self.size)
+        """Resolve the simulation grid_spec against the simulation domain.
+
+        When AutoGrid is used, structure bounding box boundaries are automatically
+        detected and used to insert grid breakpoints with refractive-index-based
+        cell sizing.
+        """
+        return resolve_grid_spec(
+            self.grid_spec, center=self.center, size=self.size, structures=self.structures
+        )
 
     def scaled_courant(self) -> float:
         """Return the effective Courant factor after subpixel-policy scaling."""
@@ -290,8 +297,11 @@ class Simulation(Scene):
     @field_validator("shutoff")
     @classmethod
     def _validate_shutoff(cls, value: float | None) -> float | None:
-        if value is not None and value < 0.0:
-            raise ValueError("shutoff must be non-negative")
+        if value is not None:
+            if value < 0.0:
+                raise ValueError("shutoff must be non-negative")
+            if value > 1.0:
+                raise ValueError("shutoff must be at most 1.0")
         return value
 
     @field_validator("courant")
@@ -336,6 +346,22 @@ class Simulation(Scene):
         for axis in self.symmetry:
             if axis not in (-1, 0, 1):
                 raise ValueError("symmetry values must be -1, 0, or 1")
+        # Cross-validate symmetry with boundary conditions
+        if self.boundary_spec is not None and hasattr(self.boundary_spec, "as_tuple"):
+            from autofdtd.boundaries.models import BlochBoundary
+
+            boundaries = self.boundary_spec.as_tuple()
+            axis_names = ("x", "y", "z")
+            for i, sym_val in enumerate(self.symmetry):
+                if sym_val != 0:
+                    boundary = boundaries[i]
+                    if isinstance(boundary.plus, BlochBoundary) or isinstance(
+                        boundary.minus, BlochBoundary
+                    ):
+                        raise ValueError(
+                            f"symmetry={sym_val} on {axis_names[i]}-axis is incompatible with "
+                            f"BlochBoundary on the same axis"
+                        )
         if self.relax_courant:
             raise ValueError(
                 "relax_courant is deferred in Phase 1; keep it disabled until grid planning lands"
@@ -366,5 +392,5 @@ class Simulation(Scene):
             )
         if self.grid_spec is not None:
             self.resolved_grid()
-        validate_simulation_bounds(center=self.center, size=self.size, structures=self.structures)
+        validate_simulation_bounds(center=self.center, size=self.size, structures=self.structures, sources=self.sources, monitors=self.monitors)
         return self

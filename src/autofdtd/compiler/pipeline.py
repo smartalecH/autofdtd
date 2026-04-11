@@ -117,6 +117,7 @@ from autofdtd.compiler.monitors import (
     CompiledMediumMonitor,
     CompiledModeMonitor,
     CompiledProjectionMonitor,
+    CompiledSurfaceFieldMonitor,
     compile_field_monitor,
     compile_flux_monitor,
     compile_medium_monitor,
@@ -138,6 +139,9 @@ from autofdtd.compiler.runtime import (
 # Chunk layout
 from autofdtd.runtime.chunk import ChunkLayout, build_chunk_layout
 
+# Discretization
+from autofdtd.compiler.discretization import CoefficientField, discretize_scene
+
 
 @dataclass(frozen=True)
 class CompiledSceneCoefficients:
@@ -151,11 +155,15 @@ class CompiledSceneCoefficients:
         Compiled coefficients for each structure, in precedence order.
     scene_material_samples : tuple[SceneMaterialSample, ...]
         Pointwise material samples at key locations for diagnostics.
+    coefficient_field : CoefficientField | None
+        Discretized per-cell coefficient arrays (eps, mu, drive, modes).
+        Populated by calling ``discretize_scene()`` during compilation.
     """
 
     background: MaterialCoefficients
     structures: tuple[CompiledStructureCoefficients, ...]
     scene_material_samples: tuple[SceneMaterialSample, ...] = ()
+    coefficient_field: CoefficientField | None = None
 
 
 @dataclass(frozen=True)
@@ -192,6 +200,7 @@ class CompiledMonitors:
     medium: tuple[CompiledMediumMonitor, ...] = ()
     mode: tuple[CompiledModeMonitor, ...] = ()
     projection: tuple[CompiledProjectionMonitor, ...] = ()
+    surface_field: tuple[CompiledSurfaceFieldMonitor, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -369,6 +378,7 @@ def _compile_monitors_for_simulation(
     simulation: Simulation,
     *,
     grid: ResolvedGrid,
+    dt: float = 1.0,
 ) -> CompiledMonitors:
     """Compile all monitors in a simulation onto the resolved grid."""
 
@@ -377,6 +387,7 @@ def _compile_monitors_for_simulation(
     medium: list[CompiledMediumMonitor] = []
     mode: list[CompiledModeMonitor] = []
     projection: list[CompiledProjectionMonitor] = []
+    surface_field: list = []
 
     # Import monitor types for isinstance checks
     from autofdtd.monitors import (
@@ -394,6 +405,10 @@ def _compile_monitors_for_simulation(
         FieldProjectionKSpaceMonitor,
         DiffractionMonitor,
         DirectivityMonitor,
+        GaussianOverlapMonitor,
+        AstigmaticGaussianOverlapMonitor,
+        SurfaceFieldMonitor,
+        SurfaceFieldTimeMonitor,
     )
 
     for monitor in simulation.monitors:
@@ -409,6 +424,7 @@ def _compile_monitors_for_simulation(
                 overwrite=getattr(monitor, "overwrite", True),
                 freqs=getattr(monitor, "freqs", ()),
                 grid=grid,
+                dt=dt,
             )
             field.append(compiled)
         elif isinstance(monitor, (FluxMonitor, FluxTimeMonitor)):
@@ -422,6 +438,7 @@ def _compile_monitors_for_simulation(
                 start=monitor.start,
                 freqs=getattr(monitor, "freqs", ()),
                 grid=grid,
+                dt=dt,
             )
             flux.append(compiled)
         elif isinstance(monitor, (MediumMonitor, PermittivityMonitor)):
@@ -445,11 +462,12 @@ def _compile_monitors_for_simulation(
                 size=monitor.size,
                 interval=monitor.interval,
                 start=monitor.start,
-                mode_spec={"mode_index": getattr(monitor, "mode_index", 0)},
+                mode_spec=monitor.mode_spec,
                 num_freqs=getattr(monitor, "num_freqs", 1),
                 freqs=getattr(monitor, "freqs", ()),
                 direction=getattr(monitor, "direction", "+"),
                 grid=grid,
+                dt=dt,
             )
             mode.append(compiled)
         elif isinstance(
@@ -486,8 +504,34 @@ def _compile_monitors_for_simulation(
                 kx=getattr(monitor, 'kx', (-10.0, 10.0, 21)),
                 ky=getattr(monitor, 'ky', (-10.0, 10.0, 21)),
                 grid=grid,
+                dt=dt,
             )
             projection.append(compiled)
+        elif isinstance(monitor, (SurfaceFieldMonitor, SurfaceFieldTimeMonitor)):
+            from autofdtd.compiler.monitors import compile_surface_field_monitor
+
+            compiled = compile_surface_field_monitor(
+                name=monitor.name,
+                monitor_type=monitor.type,
+                center=monitor.center,
+                size=monitor.size,
+                fields=monitor.fields,
+                interval=monitor.interval,
+                start=monitor.start,
+                freqs=getattr(monitor, "freqs", ()),
+                grid=grid,
+                dt=dt,
+            )
+            surface_field.append(compiled)
+        elif isinstance(monitor, (GaussianOverlapMonitor, AstigmaticGaussianOverlapMonitor)):
+            raise NotImplementedError(
+                f"Monitor type {monitor.type} is not yet implemented. "
+                "Supported monitors are: FieldMonitor, FieldTimeMonitor, AuxFieldTimeMonitor, "
+                "FluxMonitor, FluxTimeMonitor, MediumMonitor, PermittivityMonitor, ModeMonitor, "
+                "ModeSolverMonitor, FieldProjectionAngleMonitor, FieldProjectionCartesianMonitor, "
+                "FieldProjectionKSpaceMonitor, DiffractionMonitor, DirectivityMonitor, "
+                "SurfaceFieldMonitor, SurfaceFieldTimeMonitor."
+            )
         # Unknown monitor types are silently skipped at compile time
 
     return CompiledMonitors(
@@ -496,6 +540,7 @@ def _compile_monitors_for_simulation(
         medium=tuple(medium),
         mode=tuple(mode),
         projection=tuple(projection),
+        surface_field=tuple(surface_field),
     )
 
 
@@ -549,10 +594,14 @@ def _compile_scene_coefficients(
 
     scene_material_samples = sample_scene_mediums(scene, sample_points)
 
+    # Discretize scene to produce per-cell material and coefficient fields
+    _, coefficient_field = discretize_scene(scene, grid, dt)
+
     return CompiledSceneCoefficients(
         background=background,
         structures=tuple(structures),
         scene_material_samples=scene_material_samples,
+        coefficient_field=coefficient_field,
     )
 
 
@@ -689,7 +738,9 @@ def compile_simulation(
     compiled_sources = _compile_sources_for_simulation(simulation, grid=resolved_grid)
 
     # 6. Compile monitors
-    compiled_monitors = _compile_monitors_for_simulation(simulation, grid=resolved_grid)
+    compiled_monitors = _compile_monitors_for_simulation(
+        simulation, grid=resolved_grid, dt=runtime_controls.dt
+    )
 
     # 7. Compile boundaries
     if simulation.boundary_spec is not None:

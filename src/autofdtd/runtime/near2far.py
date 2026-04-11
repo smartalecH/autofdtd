@@ -62,8 +62,7 @@ def build_near2far_surface(
     # Compute cell area for surface weighting
     # For a surface perpendicular to normal_axis, the cell area is the product
     # of the two tangential cell dimensions
-    tang1 = 1 if normal_axis != 0 else 1
-    tang2 = 2 if normal_axis != 2 else 2
+    tang1, tang2 = {(0): (1, 2), 1: (0, 2), 2: (0, 1)}[normal_axis]
     tang1_size = cell_sizes[tang1]
     tang2_size = cell_sizes[tang2]
     cell_area = tang1_size * tang2_size
@@ -241,7 +240,7 @@ def compute_total_radiated_power(
 
     # Create sinθ weighting
     sin_theta = np.sin(theta_arr)
-    sin_theta = sin_theta[:, np.newaxis]  # Broadcast for phi dimension
+    sin_theta = sin_theta[np.newaxis, :, np.newaxis]  # Shape (1, n_theta, 1) to broadcast with (n_phi, n_theta, n_freqs)
 
     # Integrate
     total_power = np.sum(power_density * sin_theta, axis=(0, 1)) * d_theta * d_phi

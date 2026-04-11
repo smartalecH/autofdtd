@@ -232,14 +232,32 @@ def sample_scene_epsilon_tensor_2d(
             eps_yy_grid[i, j] = eps_yy
             eps_zz_grid[i, j] = eps_zz
 
-    # Find cell-center coordinates (the epsilon values are at cell centers)
-    xc = tuple((x_coords[i] + x_coords[i + 1]) / 2 if i + 1 < len(x_coords) else x_coords[i] for i in range(len(x_coords)))
-    yc = tuple((y_coords[j] + y_coords[j + 1]) / 2 if j + 1 < len(y_coords) else y_coords[j] for j in range(len(y_coords)))
+    # Convert to numpy arrays for searchsorted
+    x_coords_arr = np.asarray(x_coords)
+    y_coords_arr = np.asarray(y_coords)
 
     def epsilon_callback(x: float, y: float) -> tuple[float, float, float, float, float]:
-        # Find nearest cell center
-        i = min(max(0, int(round((x - x_coords[0]) / (x_coords[1] - x_coords[0]) if len(x_coords) > 1 else 0))), nx - 1)
-        j = min(max(0, int(round((y - y_coords[0]) / (y_coords[1] - y_coords[0]) if len(y_coords) > 1 else 0))), ny - 1)
+        # Use binary search to find bracketing cell-center indices
+        # instead of nearest-neighbor snap (MS16 fix)
+        i = np.searchsorted(x_coords_arr, x)
+        j = np.searchsorted(y_coords_arr, y)
+
+        # Handle boundary cases: clip to valid range
+        if i >= nx:
+            i = nx - 1
+        elif i > 0:
+            # x is between x_coords[i-1] and x_coords[i]
+            # Use the cell-center that x is closer to
+            if x - x_coords_arr[i - 1] < x_coords_arr[i] - x:
+                i = i - 1
+
+        if j >= ny:
+            j = ny - 1
+        elif j > 0:
+            # y is between y_coords[j-1] and y_coords[j]
+            if y - y_coords_arr[j - 1] < y_coords_arr[j] - y:
+                j = j - 1
+
         return (
             float(eps_xx_grid[i, j]),
             float(eps_xy_grid[i, j]),

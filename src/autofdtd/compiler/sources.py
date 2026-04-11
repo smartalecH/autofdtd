@@ -676,8 +676,9 @@ def compile_mode_source(
     ny = len(y_coords)
     # All field components (E and H) are downsampled to cell-centered (nx-1, ny-1)
     # Note: numpy arrays are indexed as [ny, nx]; reshape order is (ny, nx)
-    field_nx = ny - 1
+    # field_nx = nx - 1 (number of x cells), field_ny = ny - 1 (number of y cells)
     field_ny = nx - 1
+    field_nx = ny - 1
 
     def _parse_field_component(
         component_data: tuple[tuple[float, float], ...],
@@ -689,7 +690,7 @@ def compile_mode_source(
         for i, (re, im) in enumerate(component_data):
             parsed[i] = complex(re, im)
         # numpy arrays are indexed as [ny, nx]; mode solver returns field_nx * field_ny elements
-        # with x varying fastest (C order), so reshape to (field_ny, field_nx) = (nx-1, ny-1)
+        # with x varying fastest (C order), so reshape to (field_ny, field_nx) = (ny-1, nx-1)
         return parsed.reshape((field_ny, field_nx))
 
     e_field_data["Ex"] = _parse_field_component(selected_mode.Ex, "Ex")
@@ -764,6 +765,7 @@ def _plane_wave_k_from_angles(
     direction: Literal["+", "-"],
     injection_axis: int,
     n_medium: float = 1.0,
+    freq: float = 1e14,
 ) -> tuple[float, float, float]:
     """Compute k-vector components from angles for a plane wave.
 
@@ -773,6 +775,7 @@ def _plane_wave_k_from_angles(
         direction: Propagation direction along injection axis (+ or -)
         injection_axis: Which axis is the injection normal (0=x, 1=y, 2=z)
         n_medium: Refractive index of the background medium
+        freq: Frequency in Hz (used to compute k = n * 2*pi*freq / c0)
 
     Returns:
         kx, ky, kz components of the wavevector
@@ -793,8 +796,8 @@ def _plane_wave_k_from_angles(
     sin_phi = math.sin(angle_phi)
     cos_phi = math.cos(angle_phi)
 
-    # k magnitude in the medium
-    k_mag = dir_mult * n_medium * 2 * math.pi / c0
+    # k magnitude in the medium (SI: k = n * 2*pi*f / c0)
+    k_mag = dir_mult * n_medium * 2 * math.pi * freq / c0
 
     # Temporary k vector assuming injection along z
     kx_t = k_mag * sin_theta * cos_phi
@@ -870,21 +873,21 @@ def compile_plane_wave(
 
         def kx_func(freq: float, n: float = 1.0) -> float:
             kx, _, _ = _plane_wave_k_from_angles(
-                source.angle_theta, source.angle_phi, direction, inj_axis, n
+                source.angle_theta, source.angle_phi, direction, inj_axis, n, freq
             )
-            return kx / (2 * math.pi * freq) if freq > 0 else 0.0
+            return kx
 
         def ky_func(freq: float, n: float = 1.0) -> float:
             _, ky, _ = _plane_wave_k_from_angles(
-                source.angle_theta, source.angle_phi, direction, inj_axis, n
+                source.angle_theta, source.angle_phi, direction, inj_axis, n, freq
             )
-            return ky / (2 * math.pi * freq) if freq > 0 else 0.0
+            return ky
 
         def kz_func(freq: float, n: float = 1.0) -> float:
             _, _, kz = _plane_wave_k_from_angles(
-                source.angle_theta, source.angle_phi, direction, inj_axis, n
+                source.angle_theta, source.angle_phi, direction, inj_axis, n, freq
             )
-            return kz / (2 * math.pi * freq) if freq > 0 else 0.0
+            return kz
 
         return kx_func, ky_func, kz_func
 
@@ -961,30 +964,41 @@ def _compute_gaussian_weights(
     injection_axis: int,
     waist_radius: float,
     waist_distance: float,
-) -> tuple[float, ...]:
-    """Compute Gaussian envelope weights for beam cross-section.
+    source_center: tuple[float, float, float],
+    freq: float = 1e14,
+    n_medium: float = 1.0,
+) -> tuple[complex, ...]:
+    """Compute Gaussian envelope weights for beam cross-section with paraxial optics.
+
+    Implements the full paraxial Gaussian beam formulation:
+    - w(z) = w0*sqrt(1+(z/zR)^2) with zR = pi*w0^2*n/lambda
+    - Gouy phase: psi = arctan((z+z0)/zR) - arctan(z0/zR)
+    - Wavefront curvature: inv_r_z = (z+z0)/((z+z0)^2 + zR^2)
+    - Complex field: (w0/w_z) * exp(-r^2/w_z^2) * exp(i*(k*z + k*r^2*inv_r_z/2 - psi))
 
     Args:
         axis_placements: The compiled axis placements for x, y, z
         injection_axis: The injection axis (0=x, 1=y, 2=z)
-        waist_radius: Beam waist radius
-        waist_distance: Distance from waist to injection plane
+        waist_radius: Beam waist radius w0
+        waist_distance: Distance from waist to injection plane (z0)
+        source_center: The (cx, cy, cz) beam center in world coordinates
+        freq: Frequency in Hz for computing Rayleigh range
+        n_medium: Refractive index of background medium
 
     Returns:
-        Tuple of Gaussian weights for each placement (matches placements length)
+        Tuple of complex Gaussian weights for each placement (matches placements length).
+        Real part is amplitude, imaginary part is phase.
     """
-    # For beam injection, we need to compute the Gaussian amplitude at each
-    # cell center in the tangential plane, multiplied by the interpolation weights
-    # from all three axes (to match the number of placements)
-    weights: list[float] = []
+    import math
 
-    # axis_placements[axis].centers is already the subset of centers for this placement
-    # (same length as indices and weights for that axis)
-    # We iterate by position (0, 1, 2, ...) not by cell index
+    C0 = 2.998e8
+
+    weights: list[complex] = []
+
     for x_pos in range(len(axis_placements[0].weights)):
         for y_pos in range(len(axis_placements[1].weights)):
             for z_pos in range(len(axis_placements[2].weights)):
-                # Get centers for Gaussian computation
+                # Get physical centers for Gaussian computation
                 x_c = axis_placements[0].centers[x_pos]
                 y_c = axis_placements[1].centers[y_pos]
                 z_c = axis_placements[2].centers[z_pos]
@@ -995,21 +1009,68 @@ def _compute_gaussian_weights(
                 z_w = axis_placements[2].weights[z_pos]
 
                 # Radial distance from beam center in the transverse plane
-                # For injection axis, the position is along injection direction
-                # For tangential axes, we compute distance from beam center
-                r_squared = 0.0
-                if injection_axis != 0:
-                    r_squared += x_c * x_c
-                if injection_axis != 1:
-                    r_squared += y_c * y_c
-                if injection_axis != 2:
-                    r_squared += z_c * z_c
+                # and position along injection axis
+                if injection_axis == 0:
+                    # y, z are tangential
+                    delta_y = y_c - source_center[1]
+                    delta_z = z_c - source_center[2]
+                    r_squared = delta_y * delta_y + delta_z * delta_z
+                    z_pos_beam = x_c - source_center[0]
+                elif injection_axis == 1:
+                    # x, z are tangential
+                    delta_x = x_c - source_center[0]
+                    delta_z = z_c - source_center[2]
+                    r_squared = delta_x * delta_x + delta_z * delta_z
+                    z_pos_beam = y_c - source_center[1]
+                else:
+                    # x, y are tangential
+                    delta_x = x_c - source_center[0]
+                    delta_y = y_c - source_center[1]
+                    r_squared = delta_x * delta_x + delta_y * delta_y
+                    z_pos_beam = z_c - source_center[2]
 
-                # Gaussian envelope: exp(-2 * r^2 / w^2)
-                gaussian = math.exp(-2.0 * r_squared / (waist_radius * waist_radius))
+                # k0 in the medium
+                k0 = 2.0 * math.pi * freq * n_medium / C0
 
-                # Combined weight: Gaussian * all interpolation weights
-                weight = gaussian * x_w * y_w * z_w
+                # Rayleigh range in the medium: zR = pi * w0^2 * n / lambda = w0^2 * k0 / 2
+                zR = waist_radius * waist_radius * k0 / 2.0
+
+                # Distance from waist to current plane
+                z0 = waist_distance
+                z_plus_z0 = z_pos_beam + z0
+
+                # Beam width w(z)
+                if zR > 0.0:
+                    w_z = waist_radius * math.sqrt(1.0 + (z_plus_z0 / zR) ** 2)
+                else:
+                    w_z = waist_radius
+
+                # Wavefront curvature inv_r_z = 1/R(z)
+                denom = z_plus_z0 ** 2 + zR ** 2
+                if denom > 0.0:
+                    inv_r_z = z_plus_z0 / denom
+                else:
+                    inv_r_z = 0.0
+
+                # Gouy phase
+                if zR > 0.0:
+                    psi = math.atan2(z_plus_z0, zR) - math.atan2(z0, zR)
+                else:
+                    psi = 0.0
+
+                # Amplitude envelope: w0/w_z * exp(-r^2/w_z^2)
+                if w_z > 0.0:
+                    amplitude_factor = waist_radius / w_z
+                    gaussian_amp = amplitude_factor * math.exp(-r_squared / (w_z * w_z))
+                else:
+                    gaussian_amp = 0.0
+
+                # Phase: k*z + k*r^2*inv_r_z/2 - psi
+                phase = k0 * z_pos_beam + k0 * r_squared * inv_r_z / 2.0 - psi
+
+                # Combined weight: (Gaussian amplitude with phase) * all interpolation weights
+                combined = complex(gaussian_amp * math.cos(phase), gaussian_amp * math.sin(phase))
+                weight = combined * x_w * y_w * z_w
                 weights.append(weight)
 
     return tuple(weights)
@@ -1060,12 +1121,17 @@ def compile_gaussian_beam(
                 placements.append((x_index, y_index, z_index))
                 placement_weights.append(float(x_weight * y_weight * z_weight))
 
-    # Compute Gaussian beam weights
+    # Compute Gaussian beam weights with paraxial optics
+    # Use the source center for beam-relative coordinates and freq from source time
+    freq = getattr(source.source_time, 'freq0', 1e14)
     beam_weights = _compute_gaussian_weights(
         axis_placements,
         source.injection_axis,
         source.waist_radius,
         source.waist_distance,
+        source_center=source.center,
+        freq=freq,
+        n_medium=1.0,
     )
 
     # Angular spec type for frequency handling

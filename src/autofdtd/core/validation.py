@@ -65,7 +65,17 @@ from autofdtd.materials import (
 )
 from autofdtd.planning import FeatureStatus, feature_entry
 from autofdtd.monitors import monitor_model_from_value
-from autofdtd.sources import UniformCurrentSource, current_source_model_from_value
+from autofdtd.sources import (
+    AstigmaticGaussianBeam,
+    CustomCurrentSource,
+    CustomFieldSource,
+    GaussianBeam,
+    PlaneWave,
+    PointDipole,
+    TFSF,
+    UniformCurrentSource,
+    current_source_model_from_value,
+)
 
 Vec3 = tuple[float, float, float]
 _IMPLEMENTED_BOUNDS_GEOMETRY = frozenset(
@@ -230,8 +240,10 @@ def validate_simulation_bounds(
     center: Vec3,
     size: Vec3,
     structures: Sequence[object],
+    sources: Sequence[object] = (),
+    monitors: Sequence[object] = (),
 ) -> None:
-    """Validate known structure bounds against the simulation domain."""
+    """Validate known structure, source, and monitor bounds against the simulation domain."""
 
     sim_min = tuple(origin - extent / 2.0 for origin, extent in zip(center, size, strict=True))
     sim_max = tuple(origin + extent / 2.0 for origin, extent in zip(center, size, strict=True))
@@ -255,6 +267,56 @@ def validate_simulation_bounds(
             warnings.warn(
                 f"structure {structure_name!r} extends beyond the simulation bounds and will "
                 "require clipping during scene compilation",
+                AutoFDTDValidationWarning,
+                stacklevel=3,
+            )
+
+    # Validate source bounds
+    for source in sources:
+        source_center = getattr(source, "center", None)
+        source_size = getattr(source, "size", None)
+        if source_center is None or source_size is None:
+            continue
+        source_name = getattr(source, "name", None) or "<unnamed>"
+        half = tuple(s / 2.0 for s in source_size)
+        src_min = tuple(c - h for c, h in zip(source_center, half, strict=True))
+        src_max = tuple(c + h for c, h in zip(source_center, half, strict=True))
+        if any(
+            src_max[axis] < sim_min[axis] or src_min[axis] > sim_max[axis] for axis in range(3)
+        ):
+            raise ValueError(
+                f"source {source_name!r} lies fully outside the simulation bounds"
+            )
+        if any(low < allowed for low, allowed in zip(src_min, sim_min, strict=True)) or any(
+            high > allowed for high, allowed in zip(src_max, sim_max, strict=True)
+        ):
+            warnings.warn(
+                f"source {source_name!r} extends beyond the simulation bounds",
+                AutoFDTDValidationWarning,
+                stacklevel=3,
+            )
+
+    # Validate monitor bounds
+    for monitor in monitors:
+        monitor_center = getattr(monitor, "center", None)
+        monitor_size = getattr(monitor, "size", None)
+        if monitor_center is None or monitor_size is None:
+            continue
+        monitor_name = getattr(monitor, "name", None) or "<unnamed>"
+        half = tuple(s / 2.0 for s in monitor_size)
+        mon_min = tuple(c - h for c, h in zip(monitor_center, half, strict=True))
+        mon_max = tuple(c + h for c, h in zip(monitor_center, half, strict=True))
+        if any(
+            mon_max[axis] < sim_min[axis] or mon_min[axis] > sim_max[axis] for axis in range(3)
+        ):
+            raise ValueError(
+                f"monitor {monitor_name!r} lies fully outside the simulation bounds"
+            )
+        if any(low < allowed for low, allowed in zip(mon_min, sim_min, strict=True)) or any(
+            high > allowed for high, allowed in zip(mon_max, sim_max, strict=True)
+        ):
+            warnings.warn(
+                f"monitor {monitor_name!r} extends beyond the simulation bounds",
                 AutoFDTDValidationWarning,
                 stacklevel=3,
             )
@@ -588,14 +650,53 @@ def _normalize_medium(component: object) -> object:
 
 
 def _normalize_source(component: object) -> object:
-    if isinstance(component, UniformCurrentSource):
+    # Handle all Pydantic source models directly
+    # Note: ModeSource requires late import due to circular dependency with modes package
+    if isinstance(
+        component,
+        (
+            UniformCurrentSource,
+            PointDipole,
+            CustomCurrentSource,
+            CustomFieldSource,
+            PlaneWave,
+            GaussianBeam,
+            AstigmaticGaussianBeam,
+            TFSF,
+        ),
+    ):
+        return component
+    # Handle ModeSource separately since it requires late import
+    if hasattr(component, "__class__") and component.__class__.__name__ == "ModeSource":
         return component
     if not isinstance(component, Mapping):
         return component
     source_type = component_type_name(component)
-    if source_type != "UniformCurrentSource":
+    if source_type is None:
         return component
-    return current_source_model_from_value(component).model_dump(mode="python", exclude_none=True)
+    # Dispatch to the appropriate model validator
+    if source_type == "UniformCurrentSource":
+        return current_source_model_from_value(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "PointDipole":
+        return PointDipole.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "CustomCurrentSource":
+        return CustomCurrentSource.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "CustomFieldSource":
+        return CustomFieldSource.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "PlaneWave":
+        return PlaneWave.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "GaussianBeam":
+        return GaussianBeam.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "AstigmaticGaussianBeam":
+        return AstigmaticGaussianBeam.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "ModeSource":
+        # Late import to avoid circular dependency with modes package
+        from autofdtd.sources.mode import ModeSource
+        return ModeSource.model_validate(component).model_dump(mode="python", exclude_none=True)
+    if source_type == "TFSF":
+        return TFSF.model_validate(component).model_dump(mode="python", exclude_none=True)
+    # Unknown source type — pass through without normalization
+    return component
 
 
 def _normalize_monitor(component: object) -> object:

@@ -234,11 +234,11 @@ class GaussianBeam(TaggedModel):
             # freq0 is center frequency in Hz
             freq0 = getattr(self.source_time, "freq0", None)
             if freq0 and freq0 > 0:
-                return 3e8 / freq0
+                return 2.998e8 / freq0
         elif isinstance(self.source_time, ContinuousWave):
             freq0 = getattr(self.source_time, "freq0", None)
             if freq0 and freq0 > 0:
-                return 3e8 / freq0
+                return 2.998e8 / freq0
         return None
 
 
@@ -441,11 +441,11 @@ class AstigmaticGaussianBeam(TaggedModel):
         if isinstance(self.source_time, GaussianPulse):
             freq0 = getattr(self.source_time, "freq0", None)
             if freq0 and freq0 > 0:
-                return 3e8 / freq0
+                return 2.998e8 / freq0
         elif isinstance(self.source_time, ContinuousWave):
             freq0 = getattr(self.source_time, "freq0", None)
             if freq0 and freq0 > 0:
-                return 3e8 / freq0
+                return 2.998e8 / freq0
         return None
 
 

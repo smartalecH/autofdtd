@@ -129,10 +129,43 @@ def compute_surface_positions(
     half_size = tuple(s / 2.0 for s in monitor_size)
     lower_bounds = tuple(c - h for c, h in zip(monitor_center, half_size))
 
-    for i_pt, idx in enumerate(placements):
-        positions[i_pt, 0] = lower_bounds[0] + (idx[0] + 0.5) * cell_sizes[0]
-        positions[i_pt, 1] = lower_bounds[1] + (idx[1] + 0.5) * cell_sizes[1]
-        positions[i_pt, 2] = lower_bounds[2] + (idx[2] + 0.5) * cell_sizes[2]
+    # Determine tangential axes - detect which axis is the normal from placements
+    # The normal axis has a single unique index across all placements (planar surface)
+    # Tangential axes have multiple unique indices
+    idx0_vals = set(idx[0] for idx in placements)
+    idx1_vals = set(idx[1] for idx in placements)
+    idx2_vals = set(idx[2] for idx in placements)
+
+    # Detect normal axis: it's the one with only 1 unique value (constant index)
+    n_unique = [len(idx0_vals), len(idx1_vals), len(idx2_vals)]
+    min_unique = min(n_unique)
+    max_unique = max(n_unique)
+
+    # If all axes have the same number of unique values (e.g., single cell),
+    # fall back to standard formula for all axes
+    if min_unique == max_unique:
+        for i_pt, idx in enumerate(placements):
+            positions[i_pt, 0] = lower_bounds[0] + (idx[0] + 0.5) * cell_sizes[0]
+            positions[i_pt, 1] = lower_bounds[1] + (idx[1] + 0.5) * cell_sizes[1]
+            positions[i_pt, 2] = lower_bounds[2] + (idx[2] + 0.5) * cell_sizes[2]
+    else:
+        # Normal axis is the one with only 1 unique value
+        if len(idx0_vals) == 1:
+            normal_axis = 0
+        elif len(idx1_vals) == 1:
+            normal_axis = 1
+        else:
+            normal_axis = 2
+
+        tang1 = (normal_axis + 1) % 3
+        tang2 = (normal_axis + 2) % 3
+
+        for i_pt, idx in enumerate(placements):
+            # Normal axis: all surface cells have the same coordinate
+            positions[i_pt, normal_axis] = lower_bounds[normal_axis] + 0.5 * cell_sizes[normal_axis]
+            # Tangential axes: vary across the surface
+            positions[i_pt, tang1] = lower_bounds[tang1] + (idx[tang1] + 0.5) * cell_sizes[tang1]
+            positions[i_pt, tang2] = lower_bounds[tang2] + (idx[tang2] + 0.5) * cell_sizes[tang2]
 
     return positions
 
@@ -237,9 +270,10 @@ def near2far_transform(
     n_theta = len(theta_vals)
     n_freqs = len(freqs)
 
-    # Far-field amplitude scaling: k/(4πr) for radiation
-    k_vals = 2.0 * np.pi * np.array(freqs) / C0
-    amplitude_scaling = k_vals / (4.0 * np.pi * obs_distance)
+    # Far-field amplitude scaling: i*omega*mu/(4πr) for radiation
+    # This is the Stratton-Chu far-field radiation formula
+    omega_vals = 2.0 * np.pi * np.array(freqs)
+    amplitude_scaling = 1j * omega_vals * MU0 / (4.0 * np.pi * obs_distance)
 
     # Compute observation direction unit vectors
     r_hat = np.zeros((n_phi, n_theta, 3))
@@ -261,9 +295,9 @@ def near2far_transform(
             cos_theta = np.cos(theta)
             sin_theta = np.sin(theta)
             # θ̂ = (cosθ cosφ, cosθ sinφ, -sinθ)
-            theta_hat[i_phi, i_theta, 0] = -sin_theta * cos_phi
-            theta_hat[i_phi, i_theta, 1] = -sin_theta * sin_phi
-            theta_hat[i_phi, i_theta, 2] = -cos_theta
+            theta_hat[i_phi, i_theta, 0] = cos_theta * cos_phi
+            theta_hat[i_phi, i_theta, 1] = cos_theta * sin_phi
+            theta_hat[i_phi, i_theta, 2] = -sin_theta
             # φ̂ = (-sinφ, cosφ, 0)
             phi_hat[i_phi, i_theta, 0] = -sin_phi
             phi_hat[i_phi, i_theta, 1] = cos_phi
@@ -286,39 +320,41 @@ def near2far_transform(
                          source_positions[:, 1] * r_hat_vec[1] + \
                          source_positions[:, 2] * r_hat_vec[2]
 
-            for i_freq, k in enumerate(k_vals):
+            for i_freq, omega in enumerate(omega_vals):
+                k = omega / C0  # wavenumber
                 phase = np.exp(1j * k * projection)
                 area_weight = cell_areas if isinstance(cell_areas, np.ndarray) else 1.0
 
                 # E_θ contribution from J_s and M_s
-                # E_θ = (ik/4πr) ∫ [J_s · θ̂ + M_s · r̂/ Z₀] e^(ikr̂·r') dS
-                # For Z₀ = √(μ/ε) = 377Ω
+                # E_θ = (i*ω*μ₀/(4πr)) ∫ [J_s · θ̂ - M_s · φ̂ / Z₀] e^(ik·r') dS
+                # The Stratton-Chu formula gives E_θ = (i*ω*μ₀/(4πr)) * (N_θ - L_φ/Z₀)
+                # where N_θ = J_s · θ̂ and L_φ = M_s · φ̂ (negative because θ̂ × r̂ = -sinθ φ̂)
                 js_theta = Js[:, i_freq, 0] * theta_hat_vec[0] + \
                            Js[:, i_freq, 1] * theta_hat_vec[1] + \
                            Js[:, i_freq, 2] * theta_hat_vec[2]
-                ms_r = Ms[:, i_freq, 0] * r_hat_vec[0] + \
-                       Ms[:, i_freq, 1] * r_hat_vec[1] + \
-                       Ms[:, i_freq, 2] * r_hat_vec[2]
+                # M_s · φ̂ (phi component of magnetic surface current)
+                ms_phi = Ms[:, i_freq, 0] * phi_hat_vec[0] + \
+                         Ms[:, i_freq, 1] * phi_hat_vec[1] + \
+                         Ms[:, i_freq, 2] * phi_hat_vec[2]
 
                 E_theta[i_phi, i_theta, i_freq] = np.sum(
-                    (js_theta + ms_r / Z0) * phase * area_weight
+                    (js_theta - ms_phi / Z0) * phase * area_weight
                 )
 
                 # E_φ contribution from J_s and M_s
-                # E_φ = (ik/4πr) ∫ [J_s · φ̂ + M_s · (θ̂×r̂)/Z₀] e^(ikr̂·r') dS
+                # E_φ = (i*ω*μ₀/(4πr)) ∫ [J_s · φ̂ + M_s · θ̂ / Z₀] e^(ik·r') dS
+                # The Stratton-Chu formula gives E_φ = (i*ω*μ₀/(4πr)) * (N_φ + L_θ/Z₀)
+                # where N_φ = J_s · φ̂ and L_θ = M_s · θ̂
                 js_phi = Js[:, i_freq, 0] * phi_hat_vec[0] + \
                          Js[:, i_freq, 1] * phi_hat_vec[1] + \
                          Js[:, i_freq, 2] * phi_hat_vec[2]
-                # θ̂ × r̂ for the magnetic term
-                cross_x = theta_hat_vec[1] * r_hat_vec[2] - theta_hat_vec[2] * r_hat_vec[1]
-                cross_y = theta_hat_vec[2] * r_hat_vec[0] - theta_hat_vec[0] * r_hat_vec[2]
-                cross_z = theta_hat_vec[0] * r_hat_vec[1] - theta_hat_vec[1] * r_hat_vec[0]
-                ms_cross = Ms[:, i_freq, 0] * cross_x + \
-                           Ms[:, i_freq, 1] * cross_y + \
-                           Ms[:, i_freq, 2] * cross_z
+                # M_s · θ̂ (theta component of magnetic surface current)
+                ms_theta = Ms[:, i_freq, 0] * theta_hat_vec[0] + \
+                           Ms[:, i_freq, 1] * theta_hat_vec[1] + \
+                           Ms[:, i_freq, 2] * theta_hat_vec[2]
 
                 E_phi[i_phi, i_theta, i_freq] = np.sum(
-                    (js_phi + ms_cross / Z0) * phase * area_weight
+                    (js_phi + ms_theta / Z0) * phase * area_weight
                 )
 
             # Apply amplitude scaling
@@ -466,21 +502,14 @@ def compute_diffraction_orders_n2f(
                     for i_pt in range(n_pts):
                         idx = placements[i_pt]
 
-                        # Compute physical position along tangential directions
-                        # Use cell indices scaled by a representative cell size
-                        # This is an approximation - proper implementation
-                        # would use actual cell boundaries
-                        pos_tang1 = float(idx[pos_tang1_axis])
-                        pos_tang2 = float(idx[pos_tang2_axis])
+                        # Physical position along tangential directions
+                        # Use actual cell center coordinates: cell_idx + 0.5
+                        pos_tang1 = float(idx[pos_tang1_axis]) + 0.5
+                        pos_tang2 = float(idx[pos_tang2_axis]) + 0.5
 
-                        # DFT field values at this point
+                        # DFT field values at this point - keep complex components
                         e1 = dft_e[i_pt, i_freq, e_tang1_idx]
                         e2 = dft_e[i_pt, i_freq, e_tang2_idx]
-                        h1 = dft_h[i_pt, i_freq, h_tang1_idx]
-                        h2 = dft_h[i_pt, i_freq, h_tang2_idx]
-
-                        # Total tangential field magnitude for amplitude estimate
-                        e_total = np.sqrt(e1 * np.conj(e1) + e2 * np.conj(e2))
 
                         # Phase factor for Fourier transform: exp(-i*(k_y*y + k_z*z))
                         # The negative sign is for the forward Fourier transform
@@ -488,7 +517,8 @@ def compute_diffraction_orders_n2f(
                             -1j * (k_y * pos_tang1 + k_z * pos_tang2)
                         )
 
-                        amplitude += e_total * phase
+                        # Accumulate using complex tangential E field (not magnitude)
+                        amplitude += e1 * phase
 
                     orders[order_idx, i_freq] = amplitude
 

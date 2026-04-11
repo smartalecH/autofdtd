@@ -28,6 +28,7 @@ from autofdtd.boundaries import (
     boundary_spec_model_from_value,
 )
 from autofdtd.core.models import AutoFDTDModel
+from autofdtd.compiler.materials import MU_0
 
 
 class BoundaryMode(StrEnum):
@@ -293,16 +294,34 @@ def _compile_pml_coefficients(
     memory_drive: list[float] = []
     stretch: list[float] = []
     layer_count = edge.num_layers
+
+    # B5 fix: Compute sigma_max using CFS-PML formula
+    # sigma_max = -(m+1)*ln(R_target) / (2*eta*d_pml)
+    # R_target = 1e-8 (target reflection coefficient)
+    # eta = sqrt(mu/eps) = vacuum impedance since PML is at boundary
+    # This replaces the fixed sigma_max=1.5 which ignores grid/dt
+    R_target = 1e-8
+    d_pml = layer_count * grid_spacing
+    eta = math.sqrt(MU_0 / EPSILON_0)  # vacuum impedance
+    sigma_max = -(params.sigma_order + 1) * math.log(R_target) / (2.0 * eta * d_pml)
+
     for layer_index in range(layer_count):
         fraction = float(layer_index + 1) / float(layer_count)
         sigma_value = _polynomial_profile(
-            params.sigma_min, params.sigma_max, params.sigma_order, fraction
+            params.sigma_min, sigma_max, params.sigma_order, fraction
         )
         kappa_value = _polynomial_profile(
             params.kappa_min, params.kappa_max, params.kappa_order, fraction
         )
+        # B6 fix: For CFS-PML (StablePML), alpha profile should decrease from inner to outer.
+        # alpha should be MAX at inner edge (fraction=0), MIN at outer edge (fraction=1).
+        # The polynomial uses (1-fraction) to achieve the correct CFS-PML profile.
+        if isinstance(edge, StablePML):
+            alpha_fraction = 1.0 - fraction
+        else:
+            alpha_fraction = fraction
         alpha_value = _polynomial_profile(
-            params.alpha_min, params.alpha_max, params.alpha_order, fraction
+            params.alpha_min, params.alpha_max, params.alpha_order, alpha_fraction
         )
         damping_rate = max(0.0, sigma_value / kappa_value + alpha_value)
         attenuation_value = math.exp(-damping_rate * dt / grid_spacing)

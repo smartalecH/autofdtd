@@ -37,7 +37,7 @@ except ModuleNotFoundError:
     wp = None
 
 from autofdtd.kernels.backend import WARP_AVAILABLE, ComplexFieldPolicy
-from autofdtd.kernels.steps import allocate_maxwell_arrays, step_maxwell
+from autofdtd.kernels.steps import allocate_maxwell_arrays, step_electric, step_maxwell, step_magnetic
 
 
 def _compute_field_magnitude_sq(field_array: "wp.array | np.ndarray") -> float:
@@ -103,6 +103,10 @@ class FieldState:
         Permittivity arrays with shape (nx, ny, nz).
     mu_xx, mu_yy, mu_zz : wp.array | np.ndarray
         Permeability arrays with shape (nx, ny, nz).
+    e_drive_xx, e_drive_yy, e_drive_zz : wp.array | np.ndarray
+        Electric drive coefficient arrays with shape (nx, ny, nz).
+    m_drive_xx, m_drive_yy, m_drive_zz : wp.array | np.ndarray
+        Magnetic drive coefficient arrays with shape (nx, ny, nz).
     electric_modes : wp.array | np.ndarray
         Electric constitutive mode array with shape (nx, ny, nz).
     magnetic_modes : wp.array | np.ndarray
@@ -117,6 +121,12 @@ class FieldState:
     mu_xx: "wp.array | np.ndarray"
     mu_yy: "wp.array | np.ndarray"
     mu_zz: "wp.array | np.ndarray"
+    e_drive_xx: "wp.array | np.ndarray"
+    e_drive_yy: "wp.array | np.ndarray"
+    e_drive_zz: "wp.array | np.ndarray"
+    m_drive_xx: "wp.array | np.ndarray"
+    m_drive_yy: "wp.array | np.ndarray"
+    m_drive_zz: "wp.array | np.ndarray"
     electric_modes: "wp.array | np.ndarray"
     magnetic_modes: "wp.array | np.ndarray"
 
@@ -175,8 +185,10 @@ def populate_material_arrays(
 ) -> None:
     """Populate material coefficient arrays from compiled scene coefficients.
 
-    This fills the eps_xx/yy/zz and mu_xx/yy/zz arrays with values
-    derived from the scene's background medium and structures.
+    This fills the eps_xx/yy/zz, mu_xx/yy/zz, e_drive_xx/yy/zz, m_drive_xx/yy/zz,
+    and electric_modes/magnetic_modes arrays from the pre-discretized CoefficientField.
+    When CoefficientField is available (from discretize_scene), use it directly.
+    Otherwise falls back to using background medium only.
 
     Parameters
     ----------
@@ -185,50 +197,76 @@ def populate_material_arrays(
     compiled : CompiledSimulation
         The compiled simulation containing scene coefficient data.
     """
-    # Import locally to avoid circular imports
-    from autofdtd.compiler.pipeline import CompiledSimulation
+    import numpy as np
 
-    nx, ny, nz = field_state.E.shape[:3]
+    coeff_field = compiled.scene_coefficients.coefficient_field
 
-    # Start with vacuum values (1.0 for normalized units)
-    _fill_array(field_state.eps_xx, 1.0)
-    _fill_array(field_state.eps_yy, 1.0)
-    _fill_array(field_state.eps_zz, 1.0)
-    _fill_array(field_state.mu_xx, 1.0)
-    _fill_array(field_state.mu_yy, 1.0)
-    _fill_array(field_state.mu_zz, 1.0)
+    if coeff_field is not None:
+        # Use pre-discretized coefficient field - this has per-cell material
+        # properties computed from the actual scene geometry
+        is_warp = hasattr(field_state.eps_xx, 'numpy')
 
-    # Get background medium coefficients
-    bg = compiled.scene_coefficients.background
-    bg_eps = getattr(bg, "permittivity", 1.0)
-    bg_mu = getattr(bg, "permeability", 1.0)
+        if is_warp:
+            # Warp (GPU) path: copy numpy arrays to wp arrays
+            field_state.eps_xx.assign(coeff_field.eps_xx.astype(np.float32))
+            field_state.eps_yy.assign(coeff_field.eps_yy.astype(np.float32))
+            field_state.eps_zz.assign(coeff_field.eps_zz.astype(np.float32))
+            field_state.mu_xx.assign(coeff_field.mu_xx.astype(np.float32))
+            field_state.mu_yy.assign(coeff_field.mu_yy.astype(np.float32))
+            field_state.mu_zz.assign(coeff_field.mu_zz.astype(np.float32))
+            field_state.e_drive_xx.assign(coeff_field.e_drive_xx.astype(np.float32))
+            field_state.e_drive_yy.assign(coeff_field.e_drive_yy.astype(np.float32))
+            field_state.e_drive_zz.assign(coeff_field.e_drive_zz.astype(np.float32))
+            field_state.m_drive_xx.assign(coeff_field.m_drive_xx.astype(np.float32))
+            field_state.m_drive_yy.assign(coeff_field.m_drive_yy.astype(np.float32))
+            field_state.m_drive_zz.assign(coeff_field.m_drive_zz.astype(np.float32))
+            field_state.electric_modes.assign(coeff_field.electric_modes.astype(np.float32))
+            field_state.magnetic_modes.assign(coeff_field.magnetic_modes.astype(np.float32))
+        else:
+            # NumPy path: direct copy
+            field_state.eps_xx[:] = coeff_field.eps_xx
+            field_state.eps_yy[:] = coeff_field.eps_yy
+            field_state.eps_zz[:] = coeff_field.eps_zz
+            field_state.mu_xx[:] = coeff_field.mu_xx
+            field_state.mu_yy[:] = coeff_field.mu_yy
+            field_state.mu_zz[:] = coeff_field.mu_zz
+            field_state.e_drive_xx[:] = coeff_field.e_drive_xx
+            field_state.e_drive_yy[:] = coeff_field.e_drive_yy
+            field_state.e_drive_zz[:] = coeff_field.e_drive_zz
+            field_state.m_drive_xx[:] = coeff_field.m_drive_xx
+            field_state.m_drive_yy[:] = coeff_field.m_drive_yy
+            field_state.m_drive_zz[:] = coeff_field.m_drive_zz
+            field_state.electric_modes[:] = coeff_field.electric_modes
+            field_state.magnetic_modes[:] = coeff_field.magnetic_modes
+    else:
+        # Fallback: use background medium only (backward compatibility)
+        _fill_array(field_state.eps_xx, 1.0)
+        _fill_array(field_state.eps_yy, 1.0)
+        _fill_array(field_state.eps_zz, 1.0)
+        _fill_array(field_state.mu_xx, 1.0)
+        _fill_array(field_state.mu_yy, 1.0)
+        _fill_array(field_state.mu_zz, 1.0)
+        _fill_array(field_state.e_drive_xx, 0.0)
+        _fill_array(field_state.e_drive_yy, 0.0)
+        _fill_array(field_state.e_drive_zz, 0.0)
+        _fill_array(field_state.m_drive_xx, 0.0)
+        _fill_array(field_state.m_drive_yy, 0.0)
+        _fill_array(field_state.m_drive_zz, 0.0)
+        _fill_array(field_state.electric_modes, 0.0)
+        _fill_array(field_state.magnetic_modes, 0.0)
 
-    if bg_eps is not None:
-        _fill_array(field_state.eps_xx, bg_eps)
-        _fill_array(field_state.eps_yy, bg_eps)
-        _fill_array(field_state.eps_zz, bg_eps)
-    if bg_mu is not None:
-        _fill_array(field_state.mu_xx, bg_mu)
-        _fill_array(field_state.mu_yy, bg_mu)
-        _fill_array(field_state.mu_zz, bg_mu)
+        bg = compiled.scene_coefficients.background
+        bg_eps = getattr(bg, "permittivity", 1.0)
+        bg_mu = getattr(bg, "permeability", 1.0)
 
-    # Apply structure coefficients (simplified - just apply first structure as override)
-    # Full implementation would use the materialized grid with structure overlap
-    for struct_coeff in compiled.scene_coefficients.structures:
-        mat = struct_coeff.material_coefficients
-        mat_eps = getattr(mat, "permittivity", None)
-        mat_mu = getattr(mat, "permeability", None)
-
-        if mat_eps is not None:
-            # For simplicity, fill entire array with structure medium
-            # A full implementation would check structure geometry bounds
-            _fill_array(field_state.eps_xx, mat_eps)
-            _fill_array(field_state.eps_yy, mat_eps)
-            _fill_array(field_state.eps_zz, mat_eps)
-        if mat_mu is not None:
-            _fill_array(field_state.mu_xx, mat_mu)
-            _fill_array(field_state.mu_yy, mat_mu)
-            _fill_array(field_state.mu_zz, mat_mu)
+        if bg_eps is not None:
+            _fill_array(field_state.eps_xx, bg_eps)
+            _fill_array(field_state.eps_yy, bg_eps)
+            _fill_array(field_state.eps_zz, bg_eps)
+        if bg_mu is not None:
+            _fill_array(field_state.mu_xx, bg_mu)
+            _fill_array(field_state.mu_yy, bg_mu)
+            _fill_array(field_state.mu_zz, bg_mu)
 
 
 def allocate_field_state(
@@ -264,6 +302,12 @@ def allocate_field_state(
         mu_xx = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
         mu_yy = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
         mu_zz = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        e_drive_xx = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        e_drive_yy = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        e_drive_zz = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        m_drive_xx = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        m_drive_yy = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
+        m_drive_zz = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
         electric_modes = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
         magnetic_modes = wp.zeros(shape=grid_shape, dtype=wp.float32, device=dev)
     else:
@@ -277,6 +321,12 @@ def allocate_field_state(
         mu_xx = np.zeros(grid_shape, dtype=np.float64)
         mu_yy = np.zeros(grid_shape, dtype=np.float64)
         mu_zz = np.zeros(grid_shape, dtype=np.float64)
+        e_drive_xx = np.zeros(grid_shape, dtype=np.float64)
+        e_drive_yy = np.zeros(grid_shape, dtype=np.float64)
+        e_drive_zz = np.zeros(grid_shape, dtype=np.float64)
+        m_drive_xx = np.zeros(grid_shape, dtype=np.float64)
+        m_drive_yy = np.zeros(grid_shape, dtype=np.float64)
+        m_drive_zz = np.zeros(grid_shape, dtype=np.float64)
         electric_modes = np.zeros(grid_shape, dtype=np.float64)
         magnetic_modes = np.zeros(grid_shape, dtype=np.float64)
 
@@ -289,6 +339,12 @@ def allocate_field_state(
         mu_xx=mu_xx,
         mu_yy=mu_yy,
         mu_zz=mu_zz,
+        e_drive_xx=e_drive_xx,
+        e_drive_yy=e_drive_yy,
+        e_drive_zz=e_drive_zz,
+        m_drive_xx=m_drive_xx,
+        m_drive_yy=m_drive_yy,
+        m_drive_zz=m_drive_zz,
         electric_modes=electric_modes,
         magnetic_modes=magnetic_modes,
     )
@@ -345,6 +401,7 @@ def run_compiled_simulation(
         record_monitor_flux,
     )
     from autofdtd.runtime.sources import apply_source_injection_stage
+    from autofdtd.runtime.controls import RuntimeController
 
     import time as time_module
 
@@ -379,40 +436,64 @@ def run_compiled_simulation(
     # Allocate field state
     field_state = allocate_field_state(compiled)
 
+    # Allocate PML boundary state for single-chunk execution
+    from autofdtd.runtime.boundaries import allocate_pml_boundary_state
+
+    pml_state = allocate_pml_boundary_state(
+        compiled.compiled_boundaries.boundary_spec,
+        field_shape=compiled.grid_shape + (3,),
+        dtype=np.float64,
+    )
+
     # Initialize source runtime states
     source_runtimes = _initialize_source_runtimes(compiled)
 
     # Initialize monitor states
     monitor_states = _initialize_monitor_states(compiled)
 
+    # Initialize RuntimeController for convergence checking
+    # The RuntimeController needs the CompiledRuntimeControls directly
+    controller = RuntimeController(compiled.runtime_controls)
+
     # Execution tracking
-    integrated_electric_history: list[float] = []
     num_steps_executed = 0
     current_time = 0.0
-
-    # Peak tracking for convergence
-    peak_integrated_electric = 0.0
 
     # Timing
     wall_start = time_module.perf_counter()
 
     # Main timestep loop
+    # Correct leapfrog order (per Khronos.jl Kernels.jl:64-88):
+    #   1. Apply H sources at time t
+    #   2. Update H fields (magnetic update)
+    #   3. Apply H boundaries (symmetry, periodic)
+    #   4. Apply E sources at time t + dt/2
+    #   5. Update E fields (electric update)
+    #   6. Apply E boundaries (symmetry, periodic)
     for step in range(max_steps):
-        # 1. Source injection stage
+        # 1. H-source injection at time t (for H update)
+        # Only H-type sources (field_kind="magnetic") are injected here.
+        # Equivalence principle sources (plane wave, Gaussian beam, etc.) inject
+        # at the E-update stage only.
         field_state.E, field_state.H = apply_source_injection_stage(
             field_state.E,
             field_state.H,
             uniform_current_sources=compiled.compiled_sources.uniform_current,
             point_dipole_sources=compiled.compiled_sources.point_dipole,
+            custom_current_sources=compiled.compiled_sources.custom_current,
+            custom_field_sources=compiled.compiled_sources.custom_field,
             plane_wave_sources=compiled.compiled_sources.plane_wave,
             gaussian_beam_sources=compiled.compiled_sources.gaussian_beam,
+            astigmatic_gaussian_beam_sources=compiled.compiled_sources.astigmatic_gaussian_beam,
             mode_sources=compiled.compiled_sources.mode_source,
+            tfsf_sources=compiled.compiled_sources.tfsf,
             time=current_time,
             dt=dt,
+            field_type="magnetic",
         )
 
-        # 2. Electric field update (includes H update via step_maxwell)
-        step_result = step_maxwell(
+        # 2. H field update (magnetic update only)
+        step_magnetic(
             {
                 "E": field_state.E,
                 "H": field_state.H,
@@ -431,31 +512,125 @@ def run_compiled_simulation(
             time=current_time,
         )
 
-        # 2b. Apply symmetry transforms for symmetry-reduced domains
+        # 3. Apply H boundaries (symmetry transforms and periodic/Bloch wrap)
         _apply_symmetry_transforms(field_state, compiled)
-
-        # 2c. Apply periodic/Bloch boundary wrapping for domain boundaries
         _apply_periodic_bloch_wrap(field_state, compiled)
 
-        # 3. Compute integrated electric field for convergence check
-        E_sq = _compute_field_magnitude_sq(field_state.E)
-        integrated_electric = E_sq
-        integrated_electric_history.append(integrated_electric)
+        # 3b. Apply H PML boundaries (Bug 6 — PML state allocated but unused)
+        from autofdtd.kernels.boundaries import apply_pml_layers
 
-        # Update peak for convergence
-        if integrated_electric > peak_integrated_electric:
-            peak_integrated_electric = integrated_electric
+        field_state.H = apply_pml_layers(
+            field_state.H,
+            compiled.compiled_boundaries.boundary_spec,
+            pml_state,
+            field_family="magnetic",
+        )
 
-        # 4. Check convergence / stop conditions
-        shutoff_ratio = 1.0
-        if peak_integrated_electric > 0.0:
-            shutoff_ratio = integrated_electric / peak_integrated_electric
+        # 3c. Record H-field monitors at time t (leapfrog stagger)
+        from autofdtd.runtime.monitors import record_H_monitors
 
-        stop_reason = "max_steps"
-        if shutoff_ratio <= float(compiled.runtime_controls.shutoff) and step > 0:
-            stop_reason = "shutoff"
+        h_field_states = [
+            s for name, s in monitor_states.items() if name.startswith("field_")
+        ]
+        if h_field_states:
+            record_H_monitors(
+                h_field_states,
+                field_state.E,
+                field_state.H,
+                time=current_time,
+                step_index=step,
+            )
+
+        # 4. E-source injection at time t + dt/2 (for E update half-step)
+        # E-type sources (field_kind="electric") and equivalence principle sources
+        # (plane wave, Gaussian beam, mode, TFSF, custom field) are injected here.
+        e_injection_time = current_time + dt / 2.0
+        field_state.E, field_state.H = apply_source_injection_stage(
+            field_state.E,
+            field_state.H,
+            uniform_current_sources=compiled.compiled_sources.uniform_current,
+            point_dipole_sources=compiled.compiled_sources.point_dipole,
+            custom_current_sources=compiled.compiled_sources.custom_current,
+            custom_field_sources=compiled.compiled_sources.custom_field,
+            plane_wave_sources=compiled.compiled_sources.plane_wave,
+            gaussian_beam_sources=compiled.compiled_sources.gaussian_beam,
+            astigmatic_gaussian_beam_sources=compiled.compiled_sources.astigmatic_gaussian_beam,
+            mode_sources=compiled.compiled_sources.mode_source,
+            tfsf_sources=compiled.compiled_sources.tfsf,
+            time=e_injection_time,
+            dt=dt,
+            freq=compiled.runtime_controls.freq,
+            field_type="electric",
+        )
+
+        # 5. E field update (electric update only)
+        step_electric(
+            {
+                "E": field_state.E,
+                "H": field_state.H,
+                "eps_xx": field_state.eps_xx,
+                "eps_yy": field_state.eps_yy,
+                "eps_zz": field_state.eps_zz,
+                "mu_xx": field_state.mu_xx,
+                "mu_yy": field_state.mu_yy,
+                "mu_zz": field_state.mu_zz,
+            },
+            dt=dt,
+            dx=dx,
+            dy=dy,
+            dz=dz,
+            step_index=step,
+            time=e_injection_time,
+        )
+
+        # 6. Apply E boundaries (symmetry transforms and periodic/Bloch wrap)
+        _apply_symmetry_transforms(field_state, compiled)
+        _apply_periodic_bloch_wrap(field_state, compiled)
+
+        # 6b. Apply E PML boundaries
+        field_state.E = apply_pml_layers(
+            field_state.E,
+            compiled.compiled_boundaries.boundary_spec,
+            pml_state,
+            field_family="electric",
+        )
+
+        # 6c. Record E-field monitors at time t + dt/2 (leapfrog stagger)
+        from autofdtd.runtime.monitors import record_E_monitors
+
+        e_field_states = [
+            s for name, s in monitor_states.items() if name.startswith("field_")
+        ]
+        if e_field_states:
+            record_E_monitors(
+                e_field_states,
+                field_state.E,
+                field_state.H,
+                time=e_injection_time,
+                step_index=step,
+            )
+
+        # 7. Compute integrated electric field for convergence check
+        integrated_electric = _compute_field_magnitude_sq(field_state.E)
+
+        # 8. Evaluate convergence / stop conditions using RuntimeController
+        decision = controller.evaluate(
+            step,
+            integrated_electric=integrated_electric,
+        )
+
+        if decision.should_stop:
+            stop_reason = decision.reason.value if decision.reason else "max_steps"
             num_steps_executed = step + 1
             current_time = (step + 1) * dt
+            # Record final monitor data before breaking
+            _record_monitor_data(
+                monitor_states,
+                field_state,
+                compiled,
+                current_time,
+                step,
+            )
             break
 
         if step == max_steps - 1:
@@ -480,7 +655,7 @@ def run_compiled_simulation(
                 f"Step {step}/{max_steps} | "
                 f"Time {current_time:.3e} | "
                 f"|E|² {integrated_electric:.3e} | "
-                f"Shutoff {shutoff_ratio:.3e}"
+                f"Shutoff {decision.shutoff_ratio:.3e}"
             )
 
         current_time += dt
@@ -608,42 +783,52 @@ def _record_monitor_data(
     time: float,
     step: int,
 ) -> None:
-    """Record monitor data at the current step."""
+    """Record monitor data at the current step.
+
+    Note: DFT (frequency-domain) monitors are recorded inline during the
+    stepping loop at correct E/H leapfrog times (H at t, E at t+dt/2).
+    This function handles time-domain monitors only.
+    """
     # Import locally to avoid circular imports
     from autofdtd.compiler.monitors import (
         FieldMonitorState,
         FluxMonitorState,
     )
     from autofdtd.runtime.monitors import (
-        record_monitor_fields,
         record_monitor_flux,
     )
 
-    # Field monitors
+    # Field monitors - time-domain only (DFT handled inline at correct stagger times)
     field_states = [
         s for name, s in monitor_states.items() if name.startswith("field_")
     ]
-    if field_states:
-        record_monitor_fields(
-            field_states,
-            field_state.E,
-            field_state.H,
-            time=time,
-            step_index=step,
-        )
+    for state in field_states:
+        compiled_state = state.compiled
+        # Skip DFT monitors - they are recorded inline at correct leapfrog times
+        if compiled_state.is_frequency_domain:
+            continue
+        # Time-domain: check interval
+        if step < compiled_state.start:
+            continue
+        if (step - compiled_state.start) % compiled_state.interval != 0:
+            continue
+        state.record_time_domain(field_state.E, field_state.H, time)
 
-    # Flux monitors
+    # Flux monitors - time-domain only
     flux_states = [
         s for name, s in monitor_states.items() if name.startswith("flux_")
     ]
-    if flux_states:
-        record_monitor_flux(
-            flux_states,
-            field_state.E,
-            field_state.H,
-            time=time,
-            step_index=step,
-        )
+    for state in flux_states:
+        compiled_state = state.compiled
+        # Skip DFT monitors - recorded inline at correct times
+        if compiled_state.is_frequency_domain:
+            continue
+        # Time-domain: check interval
+        if step < compiled_state.start:
+            continue
+        if (step - compiled_state.start) % compiled_state.interval != 0:
+            continue
+        state.record_flux_time_domain(field_state.E, field_state.H, time)
 
 
 def _extract_field_monitor_data(
@@ -876,7 +1061,8 @@ def _run_chunked_simulation(
         # ---- PML boundary stage (per chunk) ----
         for chunk_idx, chunk_spec in enumerate(chunk_layout.chunks):
             _chunked_apply_pml(
-                E_full, H_full, chunk_spec, pml_state, chunk_idx, dt
+                E_full, H_full, chunk_spec, pml_state, chunk_idx, dt,
+                compiled.compiled_boundaries.boundary_spec,
             )
 
         # ---- Convergence tracking ----
@@ -1196,6 +1382,7 @@ def _chunked_exchange_face_halo(
     # (cross-device would require per-chunk arrays on different devices)
     # TODO: Implement proper cross-device path with per-chunk arrays
     _warp_array_copy_slice(E_full, dst_slice, E_full, src_slice)
+    _warp_array_copy_slice(H_full, dst_slice, H_full, src_slice)
 
 
 def _warp_array_copy_slice_with_phase(
@@ -1276,27 +1463,22 @@ def _chunk_electric_update(
     is_warp = hasattr(E_full, 'numpy')
 
     if is_warp:
-        # Warp path: use step_maxwell with sliced arrays
+        # Warp path: use step_electric with sliced arrays
         import warp as wp
 
-        # For Warp, we need to call step_maxwell on the interior region
-        # Extract interior region, update, copy back
         E_interior = E_full[i0:i1, j0:j1, k0:k1]
         H_interior = H_full[i0:i1, j0:j1, k0:k1]
         eps_xx = field_state.eps_xx[i0:i1, j0:j1, k0:k1]
         eps_yy = field_state.eps_yy[i0:i1, j0:j1, k0:k1]
         eps_zz = field_state.eps_zz[i0:i1, j0:j1, k0:k1]
 
-        step_result = step_maxwell(
+        step_result = step_electric(
             {
                 "E": E_interior,
                 "H": H_interior,
                 "eps_xx": eps_xx,
                 "eps_yy": eps_yy,
                 "eps_zz": eps_zz,
-                "mu_xx": field_state.mu_xx[i0:i1, j0:j1, k0:k1],
-                "mu_yy": field_state.mu_yy[i0:i1, j0:j1, k0:k1],
-                "mu_zz": field_state.mu_zz[i0:i1, j0:j1, k0:k1],
             },
             dt=dt,
             dx=dx,
@@ -1335,13 +1517,10 @@ def _chunk_magnetic_update(
         E_interior = E_full[i0:i1, j0:j1, k0:k1]
         H_interior = H_full[i0:i1, j0:j1, k0:k1]
 
-        step_result = step_maxwell(
+        step_result = step_magnetic(
             {
                 "E": E_interior,
                 "H": H_interior,
-                "eps_xx": field_state.eps_xx[i0:i1, j0:j1, k0:k1],
-                "eps_yy": field_state.eps_yy[i0:i1, j0:j1, k0:k1],
-                "eps_zz": field_state.eps_zz[i0:i1, j0:j1, k0:k1],
                 "mu_xx": field_state.mu_xx[i0:i1, j0:j1, k0:k1],
                 "mu_yy": field_state.mu_yy[i0:i1, j0:j1, k0:k1],
                 "mu_zz": field_state.mu_zz[i0:i1, j0:j1, k0:k1],
@@ -1376,27 +1555,64 @@ def _numpy_electric_update_chunk(
     j1 = min(E.shape[1], j1)
     k1 = min(E.shape[2], k1)
 
+    # Ensure we have at least ghost cells for proper stenciling
+    if i1 - i0 < 3 or j1 - j0 < 3 or k1 - k0 < 3:
+        return
+
     eps_xx_arr = eps_xx if eps_xx is not None else np.ones_like(E[..., 0])
     eps_yy_arr = eps_yy if eps_yy is not None else np.ones_like(E[..., 0])
     eps_zz_arr = eps_zz if eps_zz is not None else np.ones_like(E[..., 0])
 
-    dt_dy = dt / dy
-    dt_dz = dt / dz
+    inv_dx = 1.0 / dx
+    inv_dy = 1.0 / dy
+    inv_dz = 1.0 / dz
 
-    # Ex update
-    _slice = (slice(i0, i1), slice(j0, j1), slice(k0, k1), slice(None))
+    # Index ranges for interior update (excluding boundary cells)
+    ii0, ii1 = max(i0, 1), min(i1, E.shape[0] - 1)
+    jj0, jj1 = max(j0, 1), min(j1, E.shape[1] - 1)
+    kk0, kk1 = max(k0, 1), min(k1, E.shape[2] - 1)
 
+    # ---- Ex component update ----
+    # Ex: dHz/dy - dHy/dz
     # Hy at z+1/2
-    Hy_zp = H[i0:i1, j0+1:j1+1, k0:k1, 1]
+    Hy_zp = H[ii0:ii1, jj0+1:jj1+1, kk0:kk1, 1]
     Hy_zp = np.pad(Hy_zp, [(0,0), (0,1), (0,0), (0,0)], mode='constant')
-
     # Hz at y+1/2
-    Hz_yp = H[i0:i1, j0:j1, k0+1:k1+1, 2]
+    Hz_yp = H[ii0:ii1, jj0:jj1, kk0+1:kk1+1, 2]
     Hz_yp = np.pad(Hz_yp, [(0,0), (0,0), (0,1), (0,0)], mode='constant')
 
-    curl_H_Ex = (Hy_zp[..., 1] - H[i0:i1, j0:j1, k0:k1, 1]) * dt_dy / eps_xx_arr[i0:i1, j0:j1, k0:k1] \
-                - (Hz_yp[..., 2] - H[i0:i1, j0:j1, k0:k1, 2]) * dt_dz / eps_xx_arr[i0:i1, j0:j1, k0:k1]
-    E[i0:i1, j0:j1, k0:k1, 0] += curl_H_Ex
+    curl_H_Ex = (Hy_zp[..., 1] - H[ii0:ii1, jj0:jj1, kk0:kk1, 1]) * inv_dy \
+                - (Hz_yp[..., 2] - H[ii0:ii1, jj0:jj1, kk0:kk1, 2]) * inv_dz
+    ce_Ex = dt / (eps_xx_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    E[ii0:ii1, jj0:jj1, kk0:kk1, 0] += ce_Ex * curl_H_Ex
+
+    # ---- Ey component update ----
+    # Ey: dHx/dz - dHz/dx
+    # Hx at z+1/2
+    Hx_zp = H[ii0:ii1, jj0:jj1, kk0+1:kk1+1, 0]
+    Hx_zp = np.pad(Hx_zp, [(0,0), (0,0), (0,1), (0,0)], mode='constant')
+    # Hz at x+1/2
+    Hz_xp = H[ii0+1:ii1+1, jj0:jj1, kk0:kk1, 2]
+    Hz_xp = np.pad(Hz_xp, [(0,1), (0,0), (0,0), (0,0)], mode='constant')
+
+    curl_H_Ey = (Hx_zp[..., 0] - H[ii0:ii1, jj0:jj1, kk0:kk1, 0]) * inv_dz \
+                - (Hz_xp[..., 2] - H[ii0:ii1, jj0:jj1, kk0:kk1, 2]) * inv_dx
+    ce_Ey = dt / (eps_yy_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    E[ii0:ii1, jj0:jj1, kk0:kk1, 1] += ce_Ey * curl_H_Ey
+
+    # ---- Ez component update ----
+    # Ez: dHy/dx - dHx/dy
+    # Hy at x+1/2
+    Hy_xp = H[ii0+1:ii1+1, jj0:jj1, kk0:kk1, 1]
+    Hy_xp = np.pad(Hy_xp, [(0,1), (0,0), (0,0), (0,0)], mode='constant')
+    # Hx at y+1/2
+    Hx_yp = H[ii0:ii1, jj0+1:jj1+1, kk0:kk1, 0]
+    Hx_yp = np.pad(Hx_yp, [(0,0), (0,1), (0,0), (0,0)], mode='constant')
+
+    curl_H_Ez = (Hy_xp[..., 1] - H[ii0:ii1, jj0:jj1, kk0:kk1, 1]) * inv_dx \
+                - (Hx_yp[..., 0] - H[ii0:ii1, jj0:jj1, kk0:kk1, 0]) * inv_dy
+    ce_Ez = dt / (eps_zz_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    E[ii0:ii1, jj0:jj1, kk0:kk1, 2] += ce_Ez * curl_H_Ez
 
 
 def _apply_symmetry_transforms(
@@ -1589,7 +1805,59 @@ def _numpy_magnetic_update_chunk(
     dt, dx, dy, dz,
 ) -> None:
     """NumPy H update for a chunk interior region."""
-    pass
+    # Clamp indices
+    i0 = max(0, i0)
+    j0 = max(0, j0)
+    k0 = max(0, k0)
+    i1 = min(H.shape[0], i1)
+    j1 = min(H.shape[1], j1)
+    k1 = min(H.shape[2], k1)
+
+    # Ensure we have at least ghost cells for proper stenciling
+    if i1 - i0 < 3 or j1 - j0 < 3 or k1 - k0 < 3:
+        return
+
+    mu_xx_arr = mu_xx if mu_xx is not None else np.ones_like(H[..., 0])
+    mu_yy_arr = mu_yy if mu_yy is not None else np.ones_like(H[..., 0])
+    mu_zz_arr = mu_zz if mu_zz is not None else np.ones_like(H[..., 0])
+
+    inv_dx = 1.0 / dx
+    inv_dy = 1.0 / dy
+    inv_dz = 1.0 / dz
+
+    # Index ranges for interior update (excluding boundary cells)
+    ii0, ii1 = max(i0, 1), min(i1, H.shape[0] - 1)
+    jj0, jj1 = max(j0, 1), min(j1, H.shape[1] - 1)
+    kk0, kk1 = max(k0, 1), min(k1, H.shape[2] - 1)
+
+    # ---- Hx component update ----
+    # Hx: dEy/dz - dEz/dy
+    Ey = E[:, :, :, 1]
+    Ez = E[:, :, :, 2]
+
+    dEy_dz_Hx = (Ey[ii0:ii1, jj0:jj1, kk0+1:kk1+1] - Ey[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dz
+    dEz_dy_Hx = (Ez[ii0:ii1, jj0+1:jj1+1, kk0:kk1] - Ez[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dy
+
+    ch_Hx = dt / (mu_xx_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    H[ii0:ii1, jj0:jj1, kk0:kk1, 0] += ch_Hx * (dEy_dz_Hx - dEz_dy_Hx)
+
+    # ---- Hy component update ----
+    # Hy: dEz/dx - dEx/dz
+    Ex = E[:, :, :, 0]
+
+    dEz_dx_Hy = (Ez[ii0+1:ii1+1, jj0:jj1, kk0:kk1] - Ez[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dx
+    dEx_dz_Hy = (Ex[ii0:ii1, jj0:jj1, kk0+1:kk1+1] - Ex[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dz
+
+    ch_Hy = dt / (mu_yy_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    H[ii0:ii1, jj0:jj1, kk0:kk1, 1] += ch_Hy * (dEz_dx_Hy - dEx_dz_Hy)
+
+    # ---- Hz component update ----
+    # Hz: dEx/dy - dEy/dx
+    dEx_dy_Hz = (Ex[ii0:ii1, jj0+1:jj1+1, kk0:kk1] - Ex[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dy
+    dEy_dx_Hz = (Ey[ii0+1:ii1+1, jj0:jj1, kk0:kk1] - Ey[ii0:ii1, jj0:jj1, kk0:kk1]) * inv_dx
+
+    ch_Hz = dt / (mu_zz_arr[ii0:ii1, jj0:jj1, kk0:kk1] + 1e-20)
+    H[ii0:ii1, jj0:jj1, kk0:kk1, 2] += ch_Hz * (dEx_dy_Hz - dEy_dx_Hz)
 
 
 def _chunked_apply_pml(
@@ -1599,10 +1867,46 @@ def _chunked_apply_pml(
     pml_state,
     chunk_idx: int,
     dt: float,
+    boundary_spec,
 ) -> None:
     """Apply PML boundary conditions to a chunk's exterior region.
 
     For multi-chunk execution, PML is applied to chunk exterior faces
-    that are at domain boundaries.
+    that are at domain boundaries. This implementation applies PML to
+    the full field arrays (consistent with the single-chunk path), using
+    the chunk's global_bounds to identify which PML regions affect this chunk.
+
+    Parameters
+    ----------
+    E_full : array
+        Full electric field array.
+    H_full : array
+        Full magnetic field array.
+    chunk_spec : ChunkSpec
+        Specification for this chunk.
+    pml_state : PMLBoundaryState
+        PML state arrays.
+    chunk_idx : int
+        Index of this chunk in the chunk layout.
+    dt : float
+        Timestep size (unused in current implementation, needed for CFS-PML).
+    boundary_spec : CompiledBoundarySpec
+        Boundary specification containing PML configurations.
     """
-    pass
+    from autofdtd.kernels.boundaries import apply_pml_layers
+
+    # Apply PML to H field
+    H_full[:] = apply_pml_layers(
+        H_full,
+        boundary_spec,
+        pml_state,
+        field_family="magnetic",
+    )
+
+    # Apply PML to E field
+    E_full[:] = apply_pml_layers(
+        E_full,
+        boundary_spec,
+        pml_state,
+        field_family="electric",
+    )

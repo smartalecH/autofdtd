@@ -7,7 +7,7 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from typing import Any, Literal, get_type_hints
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from autofdtd.core.models import TaggedModel
 
@@ -149,6 +149,22 @@ class FieldMonitor(Monitor):
     type: Literal["FieldMonitor"] = "FieldMonitor"
     fields: tuple[str, ...] = ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
     overwrite: bool = True
+    num_freqs: int = 1
+    freqs: tuple[float, ...] = ()
+
+    @field_validator("freqs", mode="before")
+    @classmethod
+    def _validate_freqs(cls, value: tuple[float, ...] | None) -> tuple[float, ...]:
+        if value is None:
+            return ()
+        return value
+
+    @model_validator(mode="after")
+    def _update_num_freqs(self) -> "FieldMonitor":
+        """Derive num_freqs from len(freqs)."""
+        if self.freqs:
+            object.__setattr__(self, "num_freqs", len(self.freqs))
+        return self
 
     def colocated(self) -> bool:
         return True
@@ -252,8 +268,8 @@ class FieldProjectionAngleMonitor(Monitor):
     type: Literal["FieldProjectionAngleMonitor"] = "FieldProjectionAngleMonitor"
     normal_vector: Vec3 = (0.0, 0.0, 1.0)
     projection_distance: float = 1e5
-    phi: tuple[float, float, float] = (-90.0, 90.0, 181)
-    theta: tuple[float, float, float] = (0.0, 180.0, 181)
+    phi: tuple[float, float, int] = (-90.0, 90.0, 181)
+    theta: tuple[float, float, int] = (0.0, 180.0, 181)
     num_freqs: int = 1
     freqs: tuple[float, ...] = ()
 
@@ -835,6 +851,8 @@ class SimulationData(TaggedModel):
         for name in sim_data.monitor_names:
             print(f"{name}: {type(sim_data[name])}")
     """
+
+    model_config = ConfigDict(frozen=False)
 
     type: Literal["SimulationData"] = "SimulationData"
     simulation_name: str | None = None

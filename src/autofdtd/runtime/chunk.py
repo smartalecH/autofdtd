@@ -715,32 +715,38 @@ def _build_chunk_face_halos(
                     exchange_kind = _exchange_kind_from_boundary_edge(edge, axis_idx)
                     depth = _halo_depth_for_edge(edge, axis_idx)
                     neighbor = None
-                elif side == "minus":
-                    if is_first:
-                        # Domain boundary at start of axis
-                        exchange_kind = _exchange_kind_from_boundary_edge(edge, axis_idx)
-                        depth = _halo_depth_for_edge(edge, axis_idx)
-                        neighbor = None
-                    else:
-                        # Interior face to previous chunk
-                        exchange_kind = ExchangeKind.INTERIOR
-                        depth = 1
-                        neighbor_idx = list(chunk_index)
-                        neighbor_idx[axis_idx] = chunk_pos - 1
-                        neighbor = tuple(neighbor_idx)
-                else:  # side == "plus"
-                    if is_last:
-                        # Domain boundary at end of axis
-                        exchange_kind = _exchange_kind_from_boundary_edge(edge, axis_idx)
-                        depth = _halo_depth_for_edge(edge, axis_idx)
-                        neighbor = None
-                    else:
-                        # Interior face to next chunk
-                        exchange_kind = ExchangeKind.INTERIOR
-                        depth = 1
-                        neighbor_idx = list(chunk_index)
-                        neighbor_idx[axis_idx] = chunk_pos + 1
-                        neighbor = tuple(neighbor_idx)
+                else:
+                    # Compute first/last along this axis, not the split axis
+                    axis_chunk_pos = chunk_index[axis_idx]
+                    is_first = axis_chunk_pos == 0
+                    is_last = axis_chunk_pos == n_axis_chunks - 1
+
+                    if side == "minus":
+                        if is_first:
+                            # Domain boundary at start of axis
+                            exchange_kind = _exchange_kind_from_boundary_edge(edge, axis_idx)
+                            depth = _halo_depth_for_edge(edge, axis_idx)
+                            neighbor = None
+                        else:
+                            # Interior face to previous chunk
+                            exchange_kind = ExchangeKind.INTERIOR
+                            depth = 1
+                            neighbor_idx = list(chunk_index)
+                            neighbor_idx[axis_idx] = axis_chunk_pos - 1
+                            neighbor = tuple(neighbor_idx)
+                    else:  # side == "plus"
+                        if is_last:
+                            # Domain boundary at end of axis
+                            exchange_kind = _exchange_kind_from_boundary_edge(edge, axis_idx)
+                            depth = _halo_depth_for_edge(edge, axis_idx)
+                            neighbor = None
+                        else:
+                            # Interior face to next chunk
+                            exchange_kind = ExchangeKind.INTERIOR
+                            depth = 1
+                            neighbor_idx = list(chunk_index)
+                            neighbor_idx[axis_idx] = axis_chunk_pos + 1
+                            neighbor = tuple(neighbor_idx)
 
             face_halos[face_key] = FaceHalo(
                 axis=axis_name,
@@ -785,21 +791,9 @@ def _build_exchange_plan(
                 neighbor_index[split_axis_idx] = neighbor_pos
                 neighbor_tuple = tuple(neighbor_index)
 
-                # Check if this is an interior face
-                is_interior = (
-                    chunk_pos > 0
-                    and chunk_pos < n_split - 1
-                ) or (
-                    neighbor_pos > 0
-                    and neighbor_pos < n_split - 1
-                )
-
-                if not is_interior:
-                    continue
-
                 # Get exchange kind from chunk's face halo
                 face_key = f"{axis_name}.{side}"
-                halo = chunk.face_halo.get(face_key)
+                halo = chunk.face_halos.get(face_key)
                 if halo is None:
                     continue
 

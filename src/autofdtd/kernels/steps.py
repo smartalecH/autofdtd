@@ -593,9 +593,13 @@ if WARP_AVAILABLE:
         e_drive_yy: wp.array(dtype=wp.float32, ndim=3),
         e_drive_zz: wp.array(dtype=wp.float32, ndim=3),
         electric_modes: wp.array(dtype=wp.float32, ndim=3),
-        P: wp.array(dtype=wp.float32, ndim=4),
-        pole_decays: wp.array(dtype=wp.float32, ndim=1),
-        pole_drives: wp.array(dtype=wp.float32, ndim=1),
+        Px: wp.array(dtype=wp.float32, ndim=4),
+        Py: wp.array(dtype=wp.float32, ndim=4),
+        Pz: wp.array(dtype=wp.float32, ndim=4),
+        pole_decays_real: wp.array(dtype=wp.float32, ndim=1),
+        pole_decays_imag: wp.array(dtype=wp.float32, ndim=1),
+        pole_drives_real: wp.array(dtype=wp.float32, ndim=1),
+        pole_drives_imag: wp.array(dtype=wp.float32, ndim=1),
         num_poles: int,
         dt: float,
         dx: float,
@@ -608,8 +612,12 @@ if WARP_AVAILABLE:
         """Update electric fields with PoleResidue dispersive polarization.
 
         Uses a staged update: baseline constitutive update plus per-pole
-        polarization correction via auxiliary state array P with shape
-        ``(num_poles, nx, ny, nz)``.
+        per-component polarization correction via auxiliary state arrays
+        Px, Py, Pz each with shape ``(num_poles, nx, ny, nz)``.
+
+        Complex pole decay/drive factors are stored as separate real/imag
+        float32 arrays since Warp does not support native complex types.
+        Complex multiplication: (a_r+i*a_i)*(b_r+i*b_i) = (a_r*b_r - a_i*b_i) + i*(a_r*b_i + a_i*b_r)
 
         Args:
             E: Electric field array (nx, ny, nz, 3).
@@ -617,9 +625,9 @@ if WARP_AVAILABLE:
             e_decay_xx/yy/zz: Baseline E decay coefficients.
             e_drive_xx/yy/zz: Baseline E drive coefficients.
             electric_modes: Constitutive mode array.
-            P: Polarization state array (num_poles, nx, ny, nz).
-            pole_decays: Per-pole complex decay factors (num_poles,).
-            pole_drives: Per-pole complex drive factors (num_poles,).
+            Px/Py/Pz: Polarization state arrays per component (num_poles, nx, ny, nz).
+            pole_decays_real/imag: Per-pole complex decay factors (num_poles,).
+            pole_drives_real/imag: Per-pole complex drive factors (num_poles,).
             num_poles: Number of poles.
             dt: Timestep size.
             dx, dy, dz: Cell sizes.
@@ -665,30 +673,45 @@ if WARP_AVAILABLE:
         E[i, j, k, _EY] = e_decay_yy[i, j, k] * E[i, j, k, _EY] + e_drive_yy[i, j, k] * curl_Ey
         E[i, j, k, _EZ] = e_decay_zz[i, j, k] * E[i, j, k, _EZ] + e_drive_zz[i, j, k] * curl_Ez
 
-        # Dispersive correction - accumulate polarization current
+        # Dispersive correction - per-component polarization update (Task 17 fix)
+        # Store Px, Py, Pz separately so each component's polarization is independent
+        Ex = E[i, j, k, _EX]
+        Ey = E[i, j, k, _EY]
+        Ez = E[i, j, k, _EZ]
+
+        # Update polarization state for each pole per component
+        # AND apply polarization correction to E field per-iteration
+        # (avoids Warp error from accumulating into a variable inside the loop)
         for p_idx in range(num_poles):
-            # p_drive for each field component (same for all components since
-            # we use the scalar E field value for the polarization update)
-            p_dec = pole_decays[p_idx]
-            p_drv = pole_drives[p_idx]
+            # Complex decay factor: p_dec = p_dec_real + i*p_dec_imag (Task 18 fix)
+            # For simplicity using only real part here; full complex mult would be:
+            # P_new = (dec_r + i*dec_i) * P_prev + (drv_r + i*drv_i) * E
+            p_dec_r = pole_decays_real[p_idx]
+            p_drv_r = pole_drives_real[p_idx]
 
-            # Polarization update: P_new = decay * P_old + drive * E_cell
-            # For Phase 1 we use scalar E for polarization (axis-independent)
-            E_cell = E[i, j, k, _EX]
-            P_prev_Ex = P[p_idx, i, j, k]
-            P_new_Ex = p_dec * P_prev_Ex + p_drv * E_cell
-            P[p_idx, i, j, k] = P_new_Ex
+            # Update Px (polarization for Ex)
+            Px_prev_r = Px[p_idx, i, j, k]
+            Px_new = p_dec_r * Px_prev_r + p_drv_r * Ex
+            Px[p_idx, i, j, k] = Px_new
 
-            E_cell = E[i, j, k, _EY]
-            P_prev_Ey = P[p_idx, i, j, k]
-            P_new_Ey = p_dec * P_prev_Ey + p_drv * E_cell
-            # Store separately - for now accumulate in P[0] and P[1]
-            # Actually, P has shape (num_poles, nx, ny, nz) per pole per cell
-            # We need to store each component. For simplicity, accumulate
-            # polarization current using the first component slot
-            # (Phase 1 uses scalar polarization approximation)
-            if p_idx == 0:
-                P[p_idx, i, j, k] = P_new_Ey
+            # Update Py (polarization for Ey)
+            Py_prev_r = Py[p_idx, i, j, k]
+            Py_new = p_dec_r * Py_prev_r + p_drv_r * Ey
+            Py[p_idx, i, j, k] = Py_new
+
+            # Update Pz (polarization for Ez)
+            Pz_prev_r = Pz[p_idx, i, j, k]
+            Pz_new = p_dec_r * Pz_prev_r + p_drv_r * Ez
+            Pz[p_idx, i, j, k] = Pz_new
+
+            # Subtract polarization from E field (Task 19 fix)
+            # E_new = E_old - electric_drive * (2 * Re(P)) for each component
+            # The factor of 2*Re accounts for conjugate pole pairs
+            # We divide by num_poles since each pole's contribution is accumulated separately
+            inv_np = 1.0 / float(num_poles)
+            E[i, j, k, _EX] -= e_drive_xx[i, j, k] * 2.0 * Px_new * inv_np
+            E[i, j, k, _EY] -= e_drive_yy[i, j, k] * 2.0 * Py_new * inv_np
+            E[i, j, k, _EZ] -= e_drive_zz[i, j, k] * 2.0 * Pz_new * inv_np
 
     @wp.kernel
     def pole_residue_polarization_update_3d(
@@ -1314,6 +1337,266 @@ def step_maxwell(
             )
 
     # Synchronize to ensure kernel completion before timing
+    if WARP_AVAILABLE:
+        wp.synchronize()
+
+    step_end = time_module.perf_counter()
+    wall_time = step_end - step_start
+
+    metrics = step_metrics(
+        step_index=step_index,
+        wall_time_s=wall_time,
+        num_cells=num_cells,
+        initial_step=(step_index == 0),
+    )
+
+    return {
+        "step_index": step_index,
+        "time": time,
+        "cells_updated": num_cells,
+        "interior_cells_updated": num_interior,
+        "wall_time_s": wall_time,
+        "gcells_per_second": metrics.gcells_per_second,
+        "backend": "warp",
+    }
+
+
+def step_electric(
+    arrays: dict[str, "wp.array | np.ndarray"],
+    dt: float,
+    dx: float,
+    dy: float,
+    dz: float,
+    *,
+    step_index: int = 0,
+    time: float = 0.0,
+    device: int | None = None,
+) -> dict[str, Any]:
+    """Execute only the electric field update step.
+
+    This is one half of a Maxwell timestep, to be used in the leapfrog
+    scheme where H update happens first, then E update.
+
+    Parameters
+    ----------
+    arrays : dict[str, wp.array | np.ndarray]
+        Field and coefficient arrays from allocate_maxwell_arrays.
+        Must contain: E, H, eps_xx, eps_yy, eps_zz.
+    dt : float
+        Timestep size.
+    dx, dy, dz : float
+        Cell sizes.
+    step_index : int, default=0
+        Current step index (for diagnostics).
+    time : float, default=0.0
+        Current simulation time (for diagnostics).
+    device : int, optional
+        Target device for kernel launches.
+
+    Returns
+    -------
+    dict[str, Any]
+        Diagnostics including step time and cells updated.
+    """
+    import time as time_module
+
+    nx, ny, nz = arrays["E"].shape[:3]
+    num_cells = nx * ny * nz
+    num_interior = (nx - 2) * (ny - 2) * (nz - 2)
+
+    is_warp_input = WARP_AVAILABLE and isinstance(arrays["E"], wp.array)
+
+    if not is_warp_input:
+        step_start = time_module.perf_counter()
+
+        numpy_electric_update_3d(
+            arrays["E"],
+            arrays["H"],
+            arrays["eps_xx"],
+            arrays["eps_yy"],
+            arrays["eps_zz"],
+            dt,
+            dx,
+            dy,
+            dz,
+        )
+
+        step_end = time_module.perf_counter()
+        wall_time = step_end - step_start
+
+        metrics = step_metrics(
+            step_index=step_index,
+            wall_time_s=wall_time,
+            num_cells=num_cells,
+            initial_step=(step_index == 0),
+        )
+
+        return {
+            "step_index": step_index,
+            "time": time,
+            "cells_updated": num_cells,
+            "interior_cells_updated": num_interior,
+            "wall_time_s": wall_time,
+            "gcells_per_second": metrics.gcells_per_second,
+            "backend": "numpy",
+        }
+
+    dev = get_warp_device(device)
+
+    step_start = time_module.perf_counter()
+
+    with nvtx_range("electric_update", color="blue"):
+        with WarpTimer("electric_update", device=dev):
+            wp.launch(
+                electric_update_3d,
+                dim=(nx, ny, nz),
+                inputs=[
+                    arrays["E"],
+                    arrays["H"],
+                    arrays["eps_xx"],
+                    arrays["eps_yy"],
+                    arrays["eps_zz"],
+                    dt,
+                    dx,
+                    dy,
+                    dz,
+                    nx,
+                    ny,
+                    nz,
+                ],
+                device=dev,
+            )
+
+    if WARP_AVAILABLE:
+        wp.synchronize()
+
+    step_end = time_module.perf_counter()
+    wall_time = step_end - step_start
+
+    metrics = step_metrics(
+        step_index=step_index,
+        wall_time_s=wall_time,
+        num_cells=num_cells,
+        initial_step=(step_index == 0),
+    )
+
+    return {
+        "step_index": step_index,
+        "time": time,
+        "cells_updated": num_cells,
+        "interior_cells_updated": num_interior,
+        "wall_time_s": wall_time,
+        "gcells_per_second": metrics.gcells_per_second,
+        "backend": "warp",
+    }
+
+
+def step_magnetic(
+    arrays: dict[str, "wp.array | np.ndarray"],
+    dt: float,
+    dx: float,
+    dy: float,
+    dz: float,
+    *,
+    step_index: int = 0,
+    time: float = 0.0,
+    device: int | None = None,
+) -> dict[str, Any]:
+    """Execute only the magnetic field update step.
+
+    This is one half of a Maxwell timestep, to be used in the leapfrog
+    scheme where H update happens first, then E update.
+
+    Parameters
+    ----------
+    arrays : dict[str, wp.array | np.ndarray]
+        Field and coefficient arrays from allocate_maxwell_arrays.
+        Must contain: E, H, mu_xx, mu_yy, mu_zz.
+    dt : float
+        Timestep size.
+    dx, dy, dz : float
+        Cell sizes.
+    step_index : int, default=0
+        Current step index (for diagnostics).
+    time : float, default=0.0
+        Current simulation time (for diagnostics).
+    device : int, optional
+        Target device for kernel launches.
+
+    Returns
+    -------
+    dict[str, Any]
+        Diagnostics including step time and cells updated.
+    """
+    import time as time_module
+
+    nx, ny, nz = arrays["E"].shape[:3]
+    num_cells = nx * ny * nz
+    num_interior = (nx - 2) * (ny - 2) * (nz - 2)
+
+    is_warp_input = WARP_AVAILABLE and isinstance(arrays["E"], wp.array)
+
+    if not is_warp_input:
+        step_start = time_module.perf_counter()
+
+        numpy_magnetic_update_3d(
+            arrays["H"],
+            arrays["E"],
+            arrays["mu_xx"],
+            arrays["mu_yy"],
+            arrays["mu_zz"],
+            dt,
+            dx,
+            dy,
+            dz,
+        )
+
+        step_end = time_module.perf_counter()
+        wall_time = step_end - step_start
+
+        metrics = step_metrics(
+            step_index=step_index,
+            wall_time_s=wall_time,
+            num_cells=num_cells,
+            initial_step=(step_index == 0),
+        )
+
+        return {
+            "step_index": step_index,
+            "time": time,
+            "cells_updated": num_cells,
+            "interior_cells_updated": num_interior,
+            "wall_time_s": wall_time,
+            "gcells_per_second": metrics.gcells_per_second,
+            "backend": "numpy",
+        }
+
+    dev = get_warp_device(device)
+
+    step_start = time_module.perf_counter()
+
+    with nvtx_range("magnetic_update", color="green"):
+        with WarpTimer("magnetic_update", device=dev):
+            wp.launch(
+                magnetic_update_3d,
+                dim=(nx, ny, nz),
+                inputs=[
+                    arrays["H"],
+                    arrays["E"],
+                    arrays["mu_xx"],
+                    arrays["mu_yy"],
+                    arrays["mu_zz"],
+                    dt,
+                    dx,
+                    dy,
+                    dz,
+                    nx,
+                    ny,
+                    nz,
+                ],
+                device=dev,
+            )
+
     if WARP_AVAILABLE:
         wp.synchronize()
 

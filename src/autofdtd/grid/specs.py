@@ -57,7 +57,7 @@ def _deduplicate_coords(coords: list[float], *, tolerance: float) -> tuple[float
     deduplicated = [coords[0]]
     for value in coords[1:]:
         if math.isclose(value, deduplicated[-1], rel_tol=0.0, abs_tol=tolerance):
-            deduplicated[-1] = value
+            # Keep the first coordinate (earlier value), don't replace with later one
             continue
         deduplicated.append(value)
     return tuple(deduplicated)
@@ -155,7 +155,8 @@ class ResolvedGrid(TaggedModel):
     def total_cells(self) -> int:
         """Return the total number of primal cells in the resolved grid."""
         nx, ny, nz = self.shape
-        return nx * ny * nz
+        # Use max(1, n) for collapsed dimensions to avoid returning 0 for 2D sims
+        return max(1, nx) * max(1, ny) * max(1, nz)
 
     @property
     def min_step(self) -> float:
@@ -464,6 +465,27 @@ class AutoGrid(TaggedModel):
             target = max(target, self.dl_min)
         return target
 
+    def _structure_dl(self, wavelength: float, structure: object) -> float | None:
+        """Compute grid cell size for a structure based on its refractive index.
+
+        Uses dl = wavelength / (n * min_steps_per_wvl) where n = sqrt(eps_r * mu_r).
+        Returns None for PEC/PMC media which don't affect grid refinement.
+        """
+        medium = getattr(structure, "medium", None)
+        if medium is None:
+            return None
+        medium_type = getattr(medium, "type", None)
+        # PEC and PMC don't have a meaningful refractive index for grid purposes
+        if medium_type in ("PECMedium", "PMCMedium"):
+            return None
+        # For dispersive media, fall back to permittivity (frequency-independent)
+        eps_r = getattr(medium, "permittivity", 1.0)
+        mu_r = getattr(medium, "permeability", 1.0)
+        n = math.sqrt(eps_r * mu_r)
+        if n <= 0.0:
+            return None
+        return wavelength / (n * self.min_steps_per_wvl)
+
     def make_boundaries(
         self,
         *,
@@ -472,8 +494,14 @@ class AutoGrid(TaggedModel):
         wavelength: float,
         sim_size: Vec3,
         layer_refinement_specs: Iterable[LayerRefinementSpec] = (),
+        structures: Iterable[object] = (),
     ) -> tuple[float, ...]:
-        """Resolve a simplified AutoGrid axis with optional layer refinement metadata."""
+        """Resolve a simplified AutoGrid axis with optional layer refinement metadata.
+
+        When structures are provided, automatically detects structure bounding box
+        boundaries and inserts grid breakpoints there, with cell sizes determined
+        by each structure's refractive index (dl = wavelength / (n * min_steps_per_wvl)).
+        """
         axis_min, axis_max = _normalize_axis_bounds(center=center, size=size)
         tolerance = max(1e-12, abs(size) * 1e-9)
         if math.isclose(axis_min, axis_max, rel_tol=0.0, abs_tol=tolerance):
@@ -482,6 +510,39 @@ class AutoGrid(TaggedModel):
         base_dl = self.estimated_min_dl(wavelength=wavelength, sim_size=sim_size)
         regions: list[tuple[float, float, float]] = []
         snapping_points = {axis_min, axis_max}
+
+        # Automatic structure-boundary detection: add breakpoints at structure
+        # bounding box edges with cell sizes based on refractive index
+        for structure in structures:
+            # Use structure.bounds() which returns (Vec3, Vec3) = (lower, upper)
+            bounds_fn = getattr(structure, "bounds", None)
+            if bounds_fn is None:
+                continue
+            bounds = bounds_fn()
+            if bounds is None:
+                continue
+            lower, upper = bounds
+            # Extract axis coordinate from Vec3 bounds
+            axis_lower = float(lower[0])
+            axis_upper = float(upper[0])
+
+            clipped_lower = max(axis_min, axis_lower)
+            clipped_upper = min(axis_max, axis_upper)
+            if clipped_upper < axis_min - tolerance or clipped_lower > axis_max + tolerance:
+                continue
+
+            # Compute cell size based on refractive index
+            structure_dl = self._structure_dl(wavelength, structure)
+            if structure_dl is not None and clipped_upper - clipped_lower > tolerance:
+                regions.append((clipped_lower, clipped_upper, structure_dl))
+
+            # Add structure boundaries as snapping points
+            for point in (clipped_lower, clipped_upper):
+                snapped = _snap_to_axis(
+                    point, axis_min=axis_min, axis_max=axis_max, tolerance=tolerance
+                )
+                if snapped is not None:
+                    snapping_points.add(snapped)
 
         for spec in layer_refinement_specs:
             lower, upper = spec.axis_bounds()
@@ -551,7 +612,10 @@ class AutoGrid(TaggedModel):
 
         graded = list(boundaries)
         changed = True
-        while changed:
+        iteration = 0
+        max_iterations = 1000
+        while changed and iteration < max_iterations:
+            iteration += 1
             changed = False
             cell_sizes = [upper - lower for lower, upper in zip(graded, graded[1:], strict=False)]
             for index in range(len(cell_sizes) - 1):
@@ -611,6 +675,7 @@ class GridSpec(TaggedModel):
         center: float,
         size: float,
         sim_size: Vec3,
+        structures: Iterable[object] = (),
     ) -> ResolvedGridAxis:
         """Resolve one axis against the simulation domain."""
         spec = self.axis_spec(axis)
@@ -627,13 +692,21 @@ class GridSpec(TaggedModel):
                 wavelength=self.wavelength,
                 sim_size=sim_size,
                 layer_refinement_specs=layer_specs,
+                structures=structures,
             )
         else:
             boundaries = spec.make_boundaries(center=center, size=size)
         return ResolvedGridAxis(axis=axis, boundaries=boundaries)
 
-    def make_grid(self, *, center: Vec3, size: Vec3) -> ResolvedGrid:
-        """Resolve all axes into a concrete discretization layout."""
+    def make_grid(
+        self, *, center: Vec3, size: Vec3, structures: Iterable[object] = ()
+    ) -> ResolvedGrid:
+        """Resolve all axes into a concrete discretization layout.
+
+        When structures are provided and AutoGrid is used, structure bounding box
+        boundaries are automatically detected and used to insert grid breakpoints,
+        with cell sizes determined by each structure's refractive index.
+        """
         if len(center) != 3 or len(size) != 3:
             raise ValueError("center and size must each contain exactly three components")
         normalized_center = tuple(_finite_float(value, field_name="center") for value in center)
@@ -648,18 +721,21 @@ class GridSpec(TaggedModel):
                 center=normalized_center[0],
                 size=normalized_size[0],
                 sim_size=normalized_size,
+                structures=structures,
             ),
             y=self.resolve_axis(
                 "y",
                 center=normalized_center[1],
                 size=normalized_size[1],
                 sim_size=normalized_size,
+                structures=structures,
             ),
             z=self.resolve_axis(
                 "z",
                 center=normalized_center[2],
                 size=normalized_size[2],
                 sim_size=normalized_size,
+                structures=structures,
             ),
         )
 
@@ -707,11 +783,17 @@ def grid_model_from_value(value: object) -> GridModel:
     return model_type.model_validate(value)
 
 
-def resolve_grid_spec(value: object | None, *, center: Vec3, size: Vec3) -> ResolvedGrid | None:
-    """Resolve a grid specification payload against a simulation domain."""
+def resolve_grid_spec(
+    value: object | None, *, center: Vec3, size: Vec3, structures: Iterable[object] = ()
+) -> ResolvedGrid | None:
+    """Resolve a grid specification payload against a simulation domain.
+
+    When structures are provided and AutoGrid is used, structure bounding box
+    boundaries are automatically detected for grid refinement.
+    """
     if value is None:
         return None
     grid_spec = grid_model_from_value(value)
     if not isinstance(grid_spec, GridSpec):
         raise TypeError("simulation.grid_spec must use a top-level GridSpec container")
-    return grid_spec.make_grid(center=center, size=size)
+    return grid_spec.make_grid(center=center, size=size, structures=structures)

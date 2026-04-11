@@ -120,7 +120,7 @@ def _apply_edge(
         ghost, source = _ghost_and_source_slices(axis_index, side, ndim=field.ndim)
         field[ghost] = field[source] * field.dtype.type(phase_factor)
         return
-    if mode in {BoundaryMode.ABC, BoundaryMode.PML, BoundaryMode.STABLE_PML}:
+    if mode in {BoundaryMode.ABC, BoundaryMode.PML, BoundaryMode.STABLE_PML, BoundaryMode.ABSORBER}:
         return
     ghost, source = _interior_reflection_slices(axis_index, side, ndim=field.ndim)
     field[ghost] = field[source] * np.asarray(signs, dtype=field.dtype)
@@ -167,7 +167,7 @@ def _apply_pml_region(
     memory_drive = np.asarray(coefficients.memory_drive, dtype=field.real.dtype).reshape(line_shape)
     stretch = np.asarray(coefficients.stretch, dtype=field.real.dtype).reshape(line_shape)
     face_state.memory[...] = face_state.memory * memory_decay + region_values * memory_drive
-    field[region] = region_values * attenuation * stretch
+    field[region] = region_values * attenuation * stretch + face_state.memory
 
 
 def _abc_state_slices(
@@ -437,7 +437,7 @@ if WARP_AVAILABLE:
         axis: int,
         side: int,
         mode_code: int,
-        phase_factor: complex,
+        phase_factor: float,
         signs0: int,
         signs1: int,
         signs2: int,
@@ -446,28 +446,49 @@ if WARP_AVAILABLE:
         nz: int,
     ) -> None:
         i, j, k = wp.tid()
+        # mode_code: 0=periodic, 1=bloch, 2=pec, 3=pmc, 4=abc, 5=pml, 6=stable_pml, 7=absorber
+        # skip non-reflection modes
+        if mode_code == 4 or mode_code == 5 or mode_code == 6 or mode_code == 7:
+            return
         if axis == 0:
-            if side == 0:  # minus x
-                field[i, j, k * 3 + 0] = field[(i + 1) % nx, j, k * 3 + 0] * phase_factor
-            else:  # plus x
-                field[i, j, k * 3 + 0] = field[(i - 1) % nx, j, k * 3 + 0] * phase_factor
+            src_i = (i + 1) % nx if side == 0 else (i - 1) % nx
+            if mode_code == 0 or mode_code == 1:
+                # periodic or bloch: copy with phase factor for all components
+                field[i, j, k * 3 + 0] = field[src_i, j, k * 3 + 0] * phase_factor
+                field[i, j, k * 3 + 1] = field[src_i, j, k * 3 + 1] * phase_factor
+                field[i, j, k * 3 + 2] = field[src_i, j, k * 3 + 2] * phase_factor
+            else:
+                # pec or pmc: copy with reflection signs
+                field[i, j, k * 3 + 0] = field[src_i, j, k * 3 + 0] * float(signs0)
+                field[i, j, k * 3 + 1] = field[src_i, j, k * 3 + 1] * float(signs1)
+                field[i, j, k * 3 + 2] = field[src_i, j, k * 3 + 2] * float(signs2)
         elif axis == 1:
-            if side == 0:  # minus y
-                field[i, j, k * 3 + 1] = field[i, (j + 1) % ny, k * 3 + 1] * phase_factor
-            else:  # plus y
-                field[i, j, k * 3 + 1] = field[i, (j - 1) % ny, k * 3 + 1] * phase_factor
+            src_j = (j + 1) % ny if side == 0 else (j - 1) % ny
+            if mode_code == 0 or mode_code == 1:
+                field[i, j, k * 3 + 0] = field[i, src_j, k * 3 + 0] * phase_factor
+                field[i, j, k * 3 + 1] = field[i, src_j, k * 3 + 1] * phase_factor
+                field[i, j, k * 3 + 2] = field[i, src_j, k * 3 + 2] * phase_factor
+            else:
+                field[i, j, k * 3 + 0] = field[i, src_j, k * 3 + 0] * float(signs0)
+                field[i, j, k * 3 + 1] = field[i, src_j, k * 3 + 1] * float(signs1)
+                field[i, j, k * 3 + 2] = field[i, src_j, k * 3 + 2] * float(signs2)
         else:
-            if side == 0:  # minus z
-                field[i, j, k * 3 + 2] = field[i, j, ((k + 1) % nz) * 3 + 2] * phase_factor
-            else:  # plus z
-                field[i, j, k * 3 + 2] = field[i, j, ((k - 1) % nz) * 3 + 2] * phase_factor
+            src_k = (k + 1) % nz if side == 0 else (k - 1) % nz
+            if mode_code == 0 or mode_code == 1:
+                field[i, j, k * 3 + 0] = field[i, j, src_k * 3 + 0] * phase_factor
+                field[i, j, k * 3 + 1] = field[i, j, src_k * 3 + 1] * phase_factor
+                field[i, j, k * 3 + 2] = field[i, j, src_k * 3 + 2] * phase_factor
+            else:
+                field[i, j, k * 3 + 0] = field[i, j, src_k * 3 + 0] * float(signs0)
+                field[i, j, k * 3 + 1] = field[i, j, src_k * 3 + 1] * float(signs1)
+                field[i, j, k * 3 + 2] = field[i, j, src_k * 3 + 2] * float(signs2)
 
     def warp_apply_boundary_ghost(
         field: wp.array,
         axis: int,
         side: int,
         mode_code: int,
-        phase_factor: complex,
+        phase_factor: float,
         signs: tuple[int, int, int],
         *,
         grid_shape: tuple[int, int, int],
@@ -483,7 +504,7 @@ if WARP_AVAILABLE:
                 axis,
                 side,
                 mode_code,
-                complex(phase_factor),
+                float(phase_factor),
                 signs0,
                 signs1,
                 signs2,
@@ -524,7 +545,7 @@ if WARP_AVAILABLE:
                         field[layer + 1, j, k * 3 + 0]
                         * attenuation[mem_idx, j, k * 3 + 0]
                         * stretch[mem_idx, j, k * 3 + 0]
-                    )
+                    ) + new_mem
             else:  # plus
                 for layer in range(num_layers):
                     idx = nz - 1 - layer
@@ -538,7 +559,7 @@ if WARP_AVAILABLE:
                         field[nz - 2 - layer, j, k * 3 + 0]
                         * attenuation[mem_idx, j, k * 3 + 0]
                         * stretch[mem_idx, j, k * 3 + 0]
-                    )
+                    ) + new_mem
         elif axis == 1:
             if side == 0:
                 for layer in range(num_layers):
@@ -553,7 +574,7 @@ if WARP_AVAILABLE:
                         field[i, layer + 1, k * 3 + 1]
                         * attenuation[i, mem_idx, k * 3 + 1]
                         * stretch[i, mem_idx, k * 3 + 1]
-                    )
+                    ) + new_mem
             else:
                 for layer in range(num_layers):
                     idx = ny - 1 - layer
@@ -567,7 +588,7 @@ if WARP_AVAILABLE:
                         field[i, ny - 2 - layer, k * 3 + 1]
                         * attenuation[i, mem_idx, k * 3 + 1]
                         * stretch[i, mem_idx, k * 3 + 1]
-                    )
+                    ) + new_mem
         else:
             if side == 0:
                 for layer in range(num_layers):
@@ -582,7 +603,7 @@ if WARP_AVAILABLE:
                         field[i, j, (layer + 1) * 3 + 2]
                         * attenuation[i, j, mem_idx * 3 + 2]
                         * stretch[i, j, mem_idx * 3 + 2]
-                    )
+                    ) + new_mem
             else:
                 for layer in range(num_layers):
                     idx = nz - 1 - layer
@@ -596,7 +617,7 @@ if WARP_AVAILABLE:
                         field[i, j, (nz - 2 - layer) * 3 + 2]
                         * attenuation[i, j, mem_idx * 3 + 2]
                         * stretch[i, j, mem_idx * 3 + 2]
-                    )
+                    ) + new_mem
 
     def warp_apply_pml_layer(
         field: wp.array,

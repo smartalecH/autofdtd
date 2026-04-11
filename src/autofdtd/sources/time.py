@@ -47,6 +47,17 @@ def _normalize_times(time: float | Sequence[float]) -> np.ndarray:
     return values
 
 
+def _normalize_freqs(freq: float | Sequence[float]) -> np.ndarray:
+    values = np.asarray(freq, dtype=float)
+    if values.ndim == 0:
+        values = values.reshape(1)
+    if values.ndim != 1:
+        raise ValueError("frequency samples must be a scalar or one-dimensional sequence")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("frequency samples must be finite")
+    return values
+
+
 class SourceTime(TaggedModel):
     """Base class for time-domain source envelopes."""
 
@@ -164,6 +175,29 @@ class GaussianPulse(Pulse):
             end_time += 2.0 * self._peak_time_shift
         return end_time
 
+    def amp_freq(self, freq: float | Sequence[float]) -> np.ndarray:
+        """Analytical Fourier transform of the GaussianPulse time profile.
+
+        For a Gaussian-modulated cosine pulse:
+        J(t) = exp(-(t-t0)^2 / (2*sigma^2)) * exp(i*omega0*t)
+        FT(f) = sigma * sqrt(2*pi) * exp(-2*(pi*sigma*(f-f0))^2) * exp(i*2*pi*f*t0)
+
+        Reference: meep sources.cpp gaussian_src_time::fourier_transform
+        """
+        freqs = _normalize_freqs(freq)
+        omega0 = 2.0 * math.pi * self.freq0
+        omega = 2.0 * math.pi * freqs
+        delta = (omega - omega0) * self.twidth
+        # sigma * sqrt(2*pi) * exp(-0.5 * delta^2) * exp(i * omega * peak_time)
+        ft = (
+            self.twidth
+            * math.sqrt(2.0 * math.pi)
+            * np.exp(-0.5 * delta * delta)
+            * np.exp(1j * omega * self.offset_time)
+            * self.amplitude
+        )
+        return ft
+
 
 class ContinuousWave(Pulse):
     """Logistic-ramp continuous-wave source-time profile."""
@@ -184,6 +218,26 @@ class ContinuousWave(Pulse):
 
     def end_time(self) -> None:
         return None
+
+    def amp_freq(self, freq: float | Sequence[float]) -> np.ndarray:
+        """Analytical Fourier transform of the ContinuousWave time profile.
+
+        For a CW with logistic ramp envelope:
+        FT(f) = sum over timesteps of ramp(t) * exp(-i*omega*t)
+        Using the identity integral of logistic-sine convolution gives:
+        FT(f) ~ pi * delta(omega - omega0) + i * omega * pi / (omega - omega0) * ...
+        For practical purposes, we return a delta-like response at freq0.
+
+        Reference: meep sources.cpp
+        """
+        freqs = _normalize_freqs(freq)
+        omega0 = 2.0 * math.pi * self.freq0
+        omega = 2.0 * math.pi * freqs
+        # CW produces a response peaked at the carrier frequency
+        # The logistic ramp produces a broad spectrum centered at freq0
+        delta = (omega - omega0) * self.twidth
+        spectrum = np.exp(-0.5 * delta * delta) * self.amplitude
+        return spectrum
 
 
 def _complex_pairs_to_array(values: Sequence[Sequence[float]]) -> np.ndarray:

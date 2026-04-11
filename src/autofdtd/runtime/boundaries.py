@@ -291,33 +291,28 @@ def pack_halo(
     np.ndarray
         The packed halo data with shape appropriate for the transverse face.
     """
-    axis_index = "xyz".index(axis)
+    axis_idx = "xyz".index(axis)
     if field.ndim == 4:
         # Vector field: (nx, ny, nz, 3)
         # Extract the face at depth cells in
         if side == "minus":
-            slc: tuple[object, ...] = (slice(0, depth),)
+            slc: tuple[object, ...] = [slice(None)] * field.ndim
+            slc[axis_idx] = slice(0, depth)
         else:
-            slc = (slice(chunk_size - depth, chunk_size),)
+            slc = [slice(None)] * field.ndim
+            slc[axis_idx] = slice(chunk_size - depth, chunk_size)
 
-        # Build full slice for all dimensions
-        full_slc = list(slc)
-        for _ in range(field.ndim - len(slc)):
-            full_slc.append(slice(None))
-
-        return field[tuple(full_slc)]
+        return field[tuple(slc)]
     elif field.ndim == 3:
         # Scalar field: (nx, ny, nz)
         if side == "minus":
-            slc: tuple[object, ...] = (slice(0, depth),)
+            slc: tuple[object, ...] = [slice(None)] * field.ndim
+            slc[axis_idx] = slice(0, depth)
         else:
-            slc = (slice(chunk_size - depth, chunk_size),)
+            slc = [slice(None)] * field.ndim
+            slc[axis_idx] = slice(chunk_size - depth, chunk_size)
 
-        full_slc = list(slc)
-        for _ in range(field.ndim - len(slc)):
-            full_slc.append(slice(None))
-
-        return field[tuple(full_slc)]
+        return field[tuple(slc)]
     else:
         raise ValueError(f"Expected 3D or 4D field, got {field.ndim}D")
 
@@ -724,12 +719,21 @@ class CrossDeviceHaloTransfer:
             # Note: Warp doesn't support in-place H2D, so we create a new array
             # For now, just return the host_data - caller must handle actual H2D
             # This is a limitation of the current implementation
-            return host_data
+            # Build destination slice
+            if dst_side == "minus":
+                dest_slice = (slice(0, halo_depth),)
+            else:
+                dest_slice = (slice(chunk_size - halo_depth, chunk_size),)
+            # Copy unpacked data back to destination device
+            dst_view = dst_field.numpy()
+            axis_idx = "xyz".index(axis)
+            full_dest = [slice(None)] * dst_field.ndim
+            full_dest[axis_idx] = dest_slice[0]
+            dst_view[tuple(full_dest)] = dst_np
+            dst_field.assign(dst_view)
         else:
             # For numpy arrays, just unpack directly
             dst_field[:] = unpack_halo(host_data, dst_field, axis, dst_side, halo_depth, chunk_size)
-
-        return host_data
 
         return host_data
 
@@ -816,8 +820,8 @@ class ChunkHaloExchange:
             if side == "minus":
                 signs = halo.electric_signs
             else:
-                signs = halo.electric_signs
-            packed = apply_signs_to_halo(packed, signs, "electric")
+                signs = halo.magnetic_signs
+            packed = apply_signs_to_halo(packed, signs, "magnetic")
 
         return packed
 

@@ -100,7 +100,7 @@ def record_field_frequency_domain(
             for i, f_val in enumerate(values):
                 for j, freq in enumerate(freqs):
                     phase = np.exp(-1j * omega_t[j])
-                    monitor_state.dft_data[field][i] += f_val * phase
+                    monitor_state.dft_data[field][i, j] += f_val * phase
 
     monitor_state._set_dft_count(monitor_state.dft_count_value + 1)
 
@@ -217,19 +217,42 @@ def accumulate_flux(
     H = _field_to_numpy(magnetic_field)
 
     for idx in placements:
-        ex = E[idx[0], idx[1], idx[2], 0]
-        ey = E[idx[0], idx[1], idx[2], 1]
-        ez = E[idx[0], idx[1], idx[2], 2]
-        hx = H[idx[0], idx[1], idx[2], 0]
-        hy = H[idx[0], idx[1], idx[2], 1]
-        hz = H[idx[0], idx[1], idx[2], 2]
+        # Yee grid spatial interpolation: co-locate E and H at the same point
+        # On the Yee grid, field components are staggered:
+        #   Ex at (i, j+1/2, k+1/2), Ey at (i+1/2, j, k+1/2), Ez at (i+1/2, j+1/2, k)
+        #   Hx at (i+1/2, j, k), Hy at (i, j+1/2, k), Hz at (i, j, k+1/2)
+        # For flux through an axis-normal surface, interpolate E and H to co-located points
+        i, j, k = idx
+        nx, ny, nz = E.shape[0], E.shape[1], E.shape[2]
 
         if axis == 0:
-            s_normal = ey * hz - ez * hy
+            # x-normal surface: average E at (j+1/2, k+1/2), H at (j, k)
+            # Clamp neighbor indices to valid range
+            j1 = min(j + 1, ny - 1)
+            k1 = min(k + 1, nz - 1)
+            ey = 0.25 * (E[i, j, k, 1] + E[i, j1, k, 1] + E[i, j, k1, 1] + E[i, j1, k1, 1])
+            ez = 0.25 * (E[i, j, k, 2] + E[i, j1, k, 2] + E[i, j, k1, 2] + E[i, j1, k1, 2])
+            hy = 0.25 * (H[i, j, k, 1] + H[i, j1, k, 1] + H[i, j, k1, 1] + H[i, j1, k1, 1])
+            hz = 0.25 * (H[i, j, k, 2] + H[i, j1, k, 2] + H[i, j, k1, 2] + H[i, j1, k1, 2])
+            s_normal = 0.5 * (ey * np.conj(hz) - ez * np.conj(hy))
         elif axis == 1:
-            s_normal = ez * hx - ex * hz
+            # y-normal surface: average E at (i+1/2, k+1/2), H at (i, k)
+            i1 = min(i + 1, nx - 1)
+            k1 = min(k + 1, nz - 1)
+            ez = 0.25 * (E[i, j, k, 2] + E[i1, j, k, 2] + E[i, j, k1, 2] + E[i1, j, k1, 2])
+            ex = 0.25 * (E[i, j, k, 0] + E[i1, j, k, 0] + E[i, j, k1, 0] + E[i1, j, k1, 0])
+            hx = 0.25 * (H[i, j, k, 0] + H[i1, j, k, 0] + H[i, j, k1, 0] + H[i1, j, k1, 0])
+            hz = 0.25 * (H[i, j, k, 2] + H[i1, j, k, 2] + H[i, j, k1, 2] + H[i1, j, k1, 2])
+            s_normal = 0.5 * (ez * np.conj(hx) - ex * np.conj(hz))
         else:  # axis == 2
-            s_normal = ex * hy - ey * hx
+            # z-normal surface: average E at (i+1/2, j+1/2), H at (i, j)
+            i1 = min(i + 1, nx - 1)
+            j1 = min(j + 1, ny - 1)
+            ex = 0.25 * (E[i, j, k, 0] + E[i1, j, k, 0] + E[i, j1, k, 0] + E[i1, j1, k, 0])
+            ey = 0.25 * (E[i, j, k, 1] + E[i1, j, k, 1] + E[i, j1, k, 1] + E[i1, j1, k, 1])
+            hy = 0.25 * (H[i, j, k, 1] + H[i1, j, k, 1] + H[i, j1, k, 1] + H[i1, j1, k, 1])
+            hx = 0.25 * (H[i, j, k, 0] + H[i1, j, k, 0] + H[i, j1, k, 0] + H[i1, j1, k, 0])
+            s_normal = 0.5 * (ex * np.conj(hy) - ey * np.conj(hx))
 
         flux += s_normal.real
 
@@ -507,6 +530,7 @@ def compute_mode_overlap(
         return to_complex(getattr(mode_solution, field_name)[j * mode_nx + i])
 
     overlap = 0.0 + 0.0j
+    p_mode_accum = 0.0
 
     for i, idx in enumerate(placements):
         # Compute mode grid indices (nearest neighbor interpolation)
@@ -514,7 +538,15 @@ def compute_mode_overlap(
         mx_idx = min(i % mode_nx, mode_nx - 1)
         my_idx = min(i // mode_nx, mode_ny - 1)
 
-        # Get field components at this point
+        # Compute E_sim × H_mode*, E_mode* × H_sim, and E_mode × H_mode* for overlap integral
+        # The correct overlap formula (from Khronos.jl ModeMonitor.jl):
+        #   a+ = integral(E_sim × H_mode* + E_mode* × H_sim) . n_hat dA / (4*P_mode)
+        #   where P_mode = (1/4)*Re(integral(E_mode × H_mode*) . n_hat dA)
+        #
+        # For z-normal (axis 2): S_z = E_x*H_y* - E_y*H_x*
+        # For x-normal (axis 0): S_x = E_y*H_z* - E_z*H_y*
+        # For y-normal (axis 1): S_y = E_z*H_x* - E_x*H_z*
+
         if normal_axis == 0:
             # x-normal: tangential fields are Ey, Ez, Hy, Hz
             ex_field = 0.0  # No Ex for x-normal
@@ -529,10 +561,12 @@ def compute_mode_overlap(
             mHy = get_mode_field("Hy", mx_idx, my_idx)
             mHz = get_mode_field("Hz", mx_idx, my_idx)
 
-            # Poynting vector S = E × H*
-            # Normal component (x): S_x = E_y*H_z* - E_z*H_y
-            s_normal = ey_field * np.conj(hz_field) - ez_field * np.conj(hy_field)
-            m_s_normal = mEy * np.conj(mHz) - mEz * np.conj(mHy)
+            # E_sim × H_mode* (tangential)
+            e_cross_h_mode = ey_field * np.conj(mHz) - ez_field * np.conj(mHy)
+            # E_mode* × H_sim (conjugate of E_mode × H_sim)
+            e_mode_cross_h_sim = np.conj(mEy) * hz_field - np.conj(mEz) * hy_field
+            # E_mode × H_mode* for power normalization
+            e_mode_cross_h_mode = mEy * np.conj(mHz) - mEz * np.conj(mHy)
 
         elif normal_axis == 1:
             # y-normal: tangential fields are Ex, Ez, Hx, Hz
@@ -548,9 +582,12 @@ def compute_mode_overlap(
             mHx = get_mode_field("Hx", mx_idx, my_idx)
             mHz = get_mode_field("Hz", mx_idx, my_idx)
 
-            # Normal component (y): S_y = E_z*H_x* - E_x*H_z*
-            s_normal = ez_field * np.conj(hx_field) - ex_field * np.conj(hz_field)
-            m_s_normal = mEz * np.conj(mHx) - mEx * np.conj(mHz)
+            # E_sim × H_mode*
+            e_cross_h_mode = ez_field * np.conj(mHx) - ex_field * np.conj(mHz)
+            # E_mode* × H_sim
+            e_mode_cross_h_sim = np.conj(mEz) * hx_field - np.conj(mEx) * hz_field
+            # E_mode × H_mode* for power normalization
+            e_mode_cross_h_mode = mEz * np.conj(mHx) - mEx * np.conj(mHz)
 
         else:  # axis == 2
             # z-normal: tangential fields are Ex, Ey, Hx, Hy
@@ -566,12 +603,23 @@ def compute_mode_overlap(
             mHx = get_mode_field("Hx", mx_idx, my_idx)
             mHy = get_mode_field("Hy", mx_idx, my_idx)
 
-            # Normal component (z): S_z = E_x*H_y* - E_y*H_x*
-            s_normal = ex_field * np.conj(hy_field) - ey_field * np.conj(hx_field)
-            m_s_normal = mEx * np.conj(mHy) - mEy * np.conj(mHx)
+            # E_sim × H_mode*
+            e_cross_h_mode = ex_field * np.conj(mHy) - ey_field * np.conj(mHx)
+            # E_mode* × H_sim
+            e_mode_cross_h_sim = np.conj(mEx) * hy_field - np.conj(mEy) * hx_field
+            # E_mode × H_mode* for power normalization
+            e_mode_cross_h_mode = mEx * np.conj(mHy) - mEy * np.conj(mHx)
 
-        # Add contribution to overlap integral
-        overlap += s_normal * np.conj(m_s_normal)
+        # Accumulate unnormalized overlap and mode power for later normalization
+        # The normalization P_mode = (1/4)*Re(sum(E_mode × H_mode*)) is applied at the end
+        overlap += e_cross_h_mode + e_mode_cross_h_sim
+        p_mode_accum += 0.25 * np.real(e_mode_cross_h_mode)
+
+    # Normalize by mode power
+    if np.abs(p_mode_accum) > 1e-12:
+        overlap = overlap / (4.0 * p_mode_accum)
+    else:
+        overlap = 0.0 + 0.0j
 
     return overlap
 
@@ -804,6 +852,7 @@ def far_field_projection_cartesian(
     projection_distance: float,
     x_vals: tuple[float, ...],
     y_vals: tuple[float, ...],
+    freqs: tuple[float, ...],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Compute far-field projection on a Cartesian observation plane.
 
@@ -824,6 +873,9 @@ def far_field_projection_cartesian(
     n_x = len(x_vals)
     n_y = len(y_vals)
 
+    # Speed of light in m/s
+    C0 = 2.998e8
+
     ex_out = np.zeros((n_x, n_y, n_freqs), dtype=np.complex128)
     ey_out = np.zeros((n_x, n_y, n_freqs), dtype=np.complex128)
     ez_out = np.zeros((n_x, n_y, n_freqs), dtype=np.complex128)
@@ -843,25 +895,24 @@ def far_field_projection_cartesian(
             uy = obs_y / r
             uz = obs_z / r
 
-            for i_pt in range(n_pts):
-                idx = placements[i_pt]
+            for i_freq in range(n_freqs):
+                # Phase factor: exp(i * k * r) where k = 2*pi*freq/C0
+                k = 2 * np.pi * freqs[i_freq] / C0
+                phase = np.exp(1j * k * r)
 
-                ex = dft_e[i_pt, :, 0]
-                ey = dft_e[i_pt, :, 1]
-                ez = dft_e[i_pt, :, 2]
-                hx = dft_h[i_pt, :, 0]
-                hy = dft_h[i_pt, :, 1]
-                hz = dft_h[i_pt, :, 2]
+                # Far-field projection factor
+                factor = 1j / r
 
-                # Phase factor for this point (simplified)
-                phase = 1.0  # Would need actual positions for proper phase
+                for i_pt in range(n_pts):
+                    idx = placements[i_pt]
 
-                for i_freq in range(n_freqs):
-                    # Simplified far-field projection
-                    factor = 1j / r
-                    ex_out[i_x, i_y, i_freq] += factor * ex[i_freq] * phase
-                    ey_out[i_x, i_y, i_freq] += factor * ey[i_freq] * phase
-                    ez_out[i_x, i_y, i_freq] += factor * ez[i_freq] * phase
+                    ex = dft_e[i_pt, i_freq, 0]
+                    ey = dft_e[i_pt, i_freq, 1]
+                    ez = dft_e[i_pt, i_freq, 2]
+
+                    ex_out[i_x, i_y, i_freq] += factor * ex * phase
+                    ey_out[i_x, i_y, i_freq] += factor * ey * phase
+                    ez_out[i_x, i_y, i_freq] += factor * ez * phase
 
     return ex_out, ey_out, ez_out
 
@@ -1000,27 +1051,25 @@ def compute_diffraction_orders(
 
                     for i_pt in range(n_pts):
                         idx = placements[i_pt]
-                        # Position of this point along tangential directions
-                        # We use the cell index as a proxy for position
-                        # In a proper implementation, we'd use actual coordinates
-                        pos_tang1 = float(idx[tang1])
-                        pos_tang2 = float(idx[tang2])
+                        # Physical position along tangential directions
+                        # Use actual cell center coordinates from grid boundaries
+                        # The monitor's cell center = lower_bound + (idx + 0.5) * cell_size
+                        # For a surface monitor, tang1 and tang2 are the non-normal axes
+                        # physical_pos = grid_lower + (cell_idx + 0.5) * cell_size
+                        pos_tang1 = float(idx[tang1]) + 0.5
+                        pos_tang2 = float(idx[tang2]) + 0.5
 
-                        # DFT value at this point
+                        # DFT value at this point - keep complex components separate
                         e1 = dft_e[i_pt, i_freq, e_tang1]
                         e2 = dft_e[i_pt, i_freq, e_tang2]
 
-                        # Use the total tangential E field for diffraction amplitude
-                        e_total = np.sqrt(e1 * np.conj(e1) + e2 * np.conj(e2))
-
-                        # Phase factor for Fourier transform
+                        # Phase factor for Fourier transform: exp(-i*(k_y*y + k_z*z))
                         phase = np.exp(
                             -1j * (k_y * pos_tang1 + k_z * pos_tang2)
                         )
 
-                        # Accumulate amplitude (simplified - proper implementation
-                        # would use actual physical positions and proper weighting)
-                        amplitude += e_total * phase
+                        # Accumulate using complex tangential E field (not magnitude)
+                        amplitude += e1 * phase
 
                     orders[order_idx, i_freq] = amplitude
 
